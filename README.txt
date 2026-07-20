@@ -12,6 +12,46 @@ Original files in the input directory are never modified — all changes happen 
 This workflow is designed to prepare photos for upload to a Google Pixel 1, leveraging its free unlimited original-quality photo backups.
 
 
+Recommended Workflow (Best Practice)
+
+  Keep your ORIGINALS with their original iPhone names (IMG_xxxx), one folder per import
+  date. Do NOT rename photos yourself before muxing, and do NOT store photos in the git
+  repo.
+
+  Why:
+  - Never rename before muxing. A Live Photo is an image + a companion .MOV, matched by
+    filename and by an embedded ContentIdentifier. Renaming first (photos and videos are
+    renamed in separate passes, often with slightly different timestamps) can split a
+    pair and lose the motion. masterscript muxes FIRST, then renames the fused single
+    file — which is safe.
+  - One folder per import date avoids filename collisions (two imports can each contain
+    IMG_0001.JPG) with no manual renaming at all.
+  - Originals are preserved automatically: masterscript only READS them and writes results
+    into a muxed-photo/ subfolder — it never modifies your originals.
+  - Photos do not belong in git (the repo is public and git is not built for large media).
+    Keep the scripts in git; keep photos as normal folders on disk.
+
+  Suggested layout:
+
+    ~/PhotoLibrary/
+        2026-07-20/                    <- one import, ORIGINAL names
+            IMG_0001.JPG
+            IMG_0001.MOV
+            ...
+            muxed-photo/               <- created by masterscript (the result)
+                250720-250720-12.3GB/  <- copy this batch to the Pixel
+        2026-08-10/                    <- next import, its own folder
+
+  Steps per import:
+    1. Import from iPhone via Image Capture into a fresh dated folder (keep IMG_xxxx names).
+    2. (Optional) copy that folder as-is to another drive for a second backup:
+         cp -Rp ~/PhotoLibrary/2026-07-20 /Volumes/Backup/Originals/2026-07-20
+    3. Process it:
+         ./masterscript.sh ~/PhotoLibrary/2026-07-20
+    4. Copy the ~15GB folders from muxed-photo/ to the Pixel; let Google Photos back them up.
+    5. After the backup is confirmed, you may delete muxed-photo/ (your originals remain).
+
+
 Dependencies
 Install these before running:
 
@@ -240,7 +280,9 @@ Changelog
   - All five scripts: Added -h/--help usage output.
   - Removed macOS .DS_Store files and stale MotionPhoto2-main/__pycache__ artifacts.
   - README.txt: Fixed path drift (scriptforphotolatest -> script; dropped the
-    non-existent homeServer path segment).
+    non-existent homeServer path segment). Added a "Recommended Workflow (Best Practice)"
+    section: keep originals with original names in dated folders, never rename before
+    muxing, keep photos out of git.
 
   2026-04-15 (v2)
   - masterscript.sh: Swapped step order to Mux -> Rename -> Group.
