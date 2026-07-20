@@ -1,0 +1,12 @@
+# macOS
+.DS_Store
+
+# Python build artifacts (from vendored MotionPhoto2)
+__pycache__/
+*.pyc
+
+# Vendored tool's GUI defaults — contains a personal absolute path, not source
+MotionPhoto2-main/motionphoto2.json
+
+# Workflow runtime artifacts (created inside the photo folder, not here — defensive)
+.workflow/
