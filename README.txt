@@ -42,6 +42,10 @@ Usage
     ./rename_media.sh [--dry-run] /path/to/your/photos/muxed-photo
     ./group_files_size.sh [--dry-run] /path/to/your/photos/muxed-photo
 
+  Every script accepts -h/--help to print its own usage, e.g.:
+
+    ./masterscript.sh --help
+
   Dry-run examples (preview without making changes):
 
     ./rename_media.sh --dry-run /path/to/your/photos/muxed-photo
@@ -55,7 +59,7 @@ Example: Full Workflow
 
   1. Import photos from iPhone using Image Capture into a folder:
 
-       /Volumes/Aca_WD/homeServer/media/Import from Image Capture/2026-04-15/
+       /Volumes/Aca_WD/media/Import from Image Capture/2026-04-15/
 
      The folder contains raw iPhone files like:
        IMG_1136.JPG, IMG_1369.JPG, IMG_1369.MOV, IMG_1370.JPG,
@@ -63,12 +67,12 @@ Example: Full Workflow
 
   2. Run the full workflow:
 
-       cd "/Volumes/Aca_WD/homeServer/media/Import from Image Capture/scriptforphotolatest"
-       ./masterscript.sh "/Volumes/Aca_WD/homeServer/media/Import from Image Capture/2026-04-15"
+       cd "/Volumes/Aca_WD/media/Import from Image Capture/script"
+       ./masterscript.sh "/Volumes/Aca_WD/media/Import from Image Capture/2026-04-15"
 
      Or from any directory (the script resolves its own path):
 
-       /path/to/scriptforphotolatest/masterscript.sh "/path/to/imported/photos"
+       /path/to/script/masterscript.sh "/path/to/imported/photos"
 
   3. The script runs three steps automatically:
 
@@ -201,24 +205,42 @@ Output Location
 Resume Capability
 If the workflow is interrupted (e.g. power loss, Ctrl+C), re-running masterscript.sh
 on the same directory will skip already-completed steps and continue from where it left off.
+All three steps (mux, rename, group) are checkpointed.
 Checkpoint files are stored in <input_directory>/.workflow/ and cleaned up on success.
 
 
 Logs
-All logs are stored in <input_directory>/.workflow/ during execution:
-  - workflow.log      — consolidated timestamped log for all steps
-  - rename.log        — rename details
-  - rename_errors.log — rename errors/warnings if any
+Logs are stored in hidden .workflow/ directories during execution:
+  - <input_dir>/.workflow/workflow.log        — consolidated timestamped log for all steps
+  - <muxed-photo>/.workflow/rename.log         — rename details
+  - <muxed-photo>/.workflow/rename_errors.log  — rename errors/warnings if any
 
 After successful completion:
   - workflow.log is copied to muxed-photo/ for reference
-  - The .workflow/ directory is cleaned up
+  - The .workflow/ directories (in both the input dir and muxed-photo/) are cleaned up
 
 Muxing errors (if any) are logged to:
   - muxed-photo/muxing_errors.log
 
 
 Changelog
+
+  2026-07-20 (v3)
+  - Put the whole script folder under git version control (initial pristine commit +
+    remote backup) so changes can be rolled back.
+  - masterscript.sh: Check the target directory exists BEFORE resolving it (a bad path
+    now shows the friendly error instead of a raw `cd` failure). Rewrote the disk-space
+    pre-flight to use portable `du -sk`/`df -Pk` (1024-byte blocks) and dropped the dead
+    duplicate OS branch. Added a Step-3 (grouping) resume checkpoint. Also removes the
+    leftover muxed-photo/.workflow/ directory on success.
+  - group_files_size.sh / ungroup.sh: Replaced ((var++)) with $((var+1)) to avoid a
+    `set -e` abort when a counter increments from 0 (harmless on bash 3.2, a real abort
+    on newer bash). group_files_size.sh now warns if a single file exceeds the ~15GB
+    group limit (it forms its own over-limit folder).
+  - All five scripts: Added -h/--help usage output.
+  - Removed macOS .DS_Store files and stale MotionPhoto2-main/__pycache__ artifacts.
+  - README.txt: Fixed path drift (scriptforphotolatest -> script; dropped the
+    non-existent homeServer path segment).
 
   2026-04-15 (v2)
   - masterscript.sh: Swapped step order to Mux -> Rename -> Group.
