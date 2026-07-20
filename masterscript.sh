@@ -6,11 +6,37 @@
 
 set -euo pipefail
 
+usage() {
+    cat <<'EOF'
+Usage: masterscript.sh [target_directory]
+
+Automate the photo workflow: mux Live Photos -> rename by timestamp -> group by size.
+Runs on the current directory if no target is given. Supports resume: re-run to skip
+already-completed steps (checkpoints are kept in <target>/.workflow/).
+
+Options:
+  -h, --help    Show this help and exit.
+EOF
+}
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+    usage
+    exit 0
+fi
+
 # Resolve the directory where this script lives (for calling sibling scripts)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Check for a command-line argument; use it as the input directory if provided.
 INPUT_DIR="${1:-.}"
+
+# Check the directory exists BEFORE resolving it. Resolving with `cd` on a missing
+# directory would abort under `set -e` with a raw error, bypassing the friendly
+# message below.
+if [[ ! -d "$INPUT_DIR" ]]; then
+    echo "Error: Directory '$INPUT_DIR' not found." >&2
+    exit 1
+fi
 
 # Resolve to absolute path
 INPUT_DIR="$(cd "$INPUT_DIR" && pwd)"
@@ -24,28 +50,24 @@ mkdir -p "$WORK_DIR"
 
 CHECKPOINT_MUX="$WORK_DIR/.mux_done"
 CHECKPOINT_RENAME="$WORK_DIR/.rename_done"
+CHECKPOINT_GROUP="$WORK_DIR/.group_done"
 LOG_FILE="$WORK_DIR/workflow.log"
 
 log() {
-    local msg="[$(date '+%Y-%m-%d %H:%M:%S')] $*"
+    local msg
+    msg="[$(date '+%Y-%m-%d %H:%M:%S')] $*"
     echo "$msg" | tee -a "$LOG_FILE"
 }
 
-# Check if the input directory exists
-if [[ ! -d "$INPUT_DIR" ]]; then
-    echo "Error: Directory '$INPUT_DIR' not found." >&2
-    exit 1
-fi
-
-# Disk space pre-flight check
-input_size_bytes=$(du -s "$INPUT_DIR" | awk '{print $1}')  # in 512-byte blocks
-input_size_gb=$(awk -v blocks="$input_size_bytes" 'BEGIN {printf "%.1f", blocks * 512 / (1024^3)}')
-if [[ "$OSTYPE" == "darwin"* ]]; then
-    free_space_blocks=$(df "$INPUT_DIR" | awk 'NR==2 {print $4}')  # 512-byte blocks
-else
-    free_space_blocks=$(df "$INPUT_DIR" | awk 'NR==2 {print $4}')  # 1K blocks
-fi
-free_space_gb=$(awk -v blocks="$free_space_blocks" 'BEGIN {printf "%.1f", blocks * 512 / (1024^3)}')
+# Disk space pre-flight check.
+# Use -k (1024-byte blocks) and -P (POSIX single-line output) for portable, consistent
+# sizing across macOS and Linux. On a resume run `du` also counts the existing
+# muxed-photo/ copy, which only over-estimates the requirement — a safe direction for a
+# "you may need ~2x" warning.
+input_size_kb=$(du -sk "$INPUT_DIR" | awk '{print $1}')
+input_size_gb=$(awk -v kb="$input_size_kb" 'BEGIN {printf "%.1f", kb / (1024*1024)}')
+free_space_kb=$(df -Pk "$INPUT_DIR" | awk 'NR==2 {print $4}')
+free_space_gb=$(awk -v kb="$free_space_kb" 'BEGIN {printf "%.1f", kb / (1024*1024)}')
 required_gb=$(awk -v sz="$input_size_gb" 'BEGIN {printf "%.1f", sz * 2}')
 
 log "Starting photo workflow in: $INPUT_DIR"
@@ -82,12 +104,17 @@ else
 fi
 
 # Step 3: Group the files into folders
-log "--- Step 3: Grouping files by size ---"
-"$SCRIPT_DIR/group_files_size.sh" "$MUXED_DIR" 2>&1 | tee -a "$LOG_FILE"
-log "--- Step 3: Complete ---"
+if [[ -f "$CHECKPOINT_GROUP" ]]; then
+    log "--- Step 3: Skipping grouping (already completed) ---"
+else
+    log "--- Step 3: Grouping files by size ---"
+    "$SCRIPT_DIR/group_files_size.sh" "$MUXED_DIR" 2>&1 | tee -a "$LOG_FILE"
+    touch "$CHECKPOINT_GROUP"
+    log "--- Step 3: Complete ---"
+fi
 
 # Clean up checkpoint files on success
-rm -f "$CHECKPOINT_MUX" "$CHECKPOINT_RENAME"
+rm -f "$CHECKPOINT_MUX" "$CHECKPOINT_RENAME" "$CHECKPOINT_GROUP"
 
 log "--- Workflow complete ---"
 log "Results are in: $MUXED_DIR"
@@ -96,3 +123,7 @@ log "Full log: $LOG_FILE"
 # Move the workflow log to the output directory for reference, then clean up
 cp "$LOG_FILE" "$MUXED_DIR/workflow.log" 2>/dev/null || true
 rm -rf "$WORK_DIR"
+# rename_media.sh writes its own logs into muxed-photo/.workflow/ (that dir is its
+# target). The consolidated workflow.log already captured that output via tee, so
+# remove the leftover hidden dir too.
+rm -rf "$MUXED_DIR/.workflow"

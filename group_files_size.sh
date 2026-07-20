@@ -7,6 +7,20 @@
 
 set -euo pipefail
 
+usage() {
+    cat <<'EOF'
+Usage: group_files_size.sh [--dry-run] [input_directory]
+
+Group files into ~15GB folders named by date range (YYMMDD-YYMMDD-#.#GB). Dates are
+parsed from renamed filenames (YYYYMMDD_HHMMSS) first, falling back to filesystem
+creation date. Runs on the current directory if no input directory is given.
+
+Options:
+  --dry-run     Preview the folders that would be created; make no changes.
+  -h, --help    Show this help and exit.
+EOF
+}
+
 # Defaults
 DRY_RUN=false
 INPUT_DIR=""
@@ -17,6 +31,10 @@ while [[ "$#" -gt 0 ]]; do
     --dry-run)
       DRY_RUN=true
       shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
       ;;
     *)
       INPUT_DIR="$1"
@@ -124,7 +142,10 @@ process_group() {
             fi
         done
     fi
-    ((groups_created++))
+    # Use arithmetic assignment (not ((groups_created++))): a post-increment whose
+    # pre-value is 0 makes (( )) return exit status 1, which can abort the script
+    # under `set -e` on some bash builds.
+    groups_created=$((groups_created + 1))
     COUNTER=$((COUNTER + ${#current_group_files[@]}))
 }
 
@@ -136,6 +157,13 @@ while IFS= read -r FILE; do
         file_size=$(stat -f "%z" "$FILE")
     else
         file_size=$(stat -c "%s" "$FILE")
+    fi
+
+    # A single file larger than the limit can't be split — it forms its own over-limit
+    # group. Warn so the oversized folder isn't a surprise.
+    if (( file_size > GROUP_SIZE_LIMIT )); then
+        size_gb=$(awk -v b="$file_size" 'BEGIN {printf "%.1f", b / (1024^3)}')
+        echo "Warning: '$FILE' (${size_gb}GB) exceeds the ~15GB group limit; it will form its own over-limit folder." >&2
     fi
 
     # Get file epoch using the fallback chain

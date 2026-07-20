@@ -4,6 +4,20 @@
 
 set -euo pipefail
 
+usage() {
+    cat <<'EOF'
+Usage: rename_media.sh [--dry-run] [target_directory]
+
+Batch-rename photos and videos to YYYYMMDD_HHMMSS by EXIF timestamp (with fallbacks),
+using exiftool. A %-c counter disambiguates same-timestamp collisions. Runs on the
+current directory if no target is given.
+
+Options:
+  --dry-run     Preview the renames (exiftool -testname); make no changes.
+  -h, --help    Show this help and exit.
+EOF
+}
+
 # Defaults
 DRY_RUN=false
 TARGET_DIR=""
@@ -14,6 +28,10 @@ while [[ "$#" -gt 0 ]]; do
     --dry-run)
       DRY_RUN=true
       shift
+      ;;
+    -h|--help)
+      usage
+      exit 0
       ;;
     *)
       TARGET_DIR="$1"
@@ -58,7 +76,7 @@ else
 fi
 
 # Clear previous error log
-> "$ERROR_LOG"
+: > "$ERROR_LOG"
 
 # NOTE: exiftool applies tags in order — the LAST matching tag wins.
 # So the most preferred (accurate) tag must be listed LAST.

@@ -5,6 +5,24 @@
 
 set -euo pipefail
 
+usage() {
+    cat <<'EOF'
+Usage: run_mux_motionphoto.sh <input_directory>
+
+Convert iPhone Live Photos (JPG/HEIC + companion MOV) into Google Motion Photos using the
+installed `motionphoto2` binary. Output is written to <input_directory>/muxed-photo/;
+original files are not modified. Non-Live-Photo files are copied as-is.
+
+Options:
+  -h, --help    Show this help and exit.
+EOF
+}
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+    usage
+    exit 0
+fi
+
 # Check for the existence of the `motionphoto2` binary.
 if ! command -v motionphoto2 &> /dev/null; then
     echo "Error: 'motionphoto2' not found. Please install from https://github.com/PetrVys/MotionPhoto2" >&2
