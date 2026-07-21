@@ -4,17 +4,20 @@
 
 set -euo pipefail
 
+VERSION="1.0.0"
+
 usage() {
     cat <<'EOF'
 Usage: rename_media.sh [--dry-run] [target_directory]
 
 Batch-rename photos and videos to YYYYMMDD_HHMMSS by EXIF timestamp (with fallbacks),
 using exiftool. A %-c counter disambiguates same-timestamp collisions. Runs on the
-current directory if no target is given.
+current directory if no target is given. Renames files IN PLACE.
 
 Options:
   --dry-run     Preview the renames (exiftool -testname); make no changes.
   -h, --help    Show this help and exit.
+      --version Print version and exit.
 EOF
 }
 
@@ -33,6 +36,10 @@ while [[ "$#" -gt 0 ]]; do
       usage
       exit 0
       ;;
+    --version)
+      echo "rename_media.sh $VERSION"
+      exit 0
+      ;;
     *)
       TARGET_DIR="$1"
       shift
@@ -47,7 +54,7 @@ fi
 
 # Check for exiftool
 if ! command -v exiftool &> /dev/null; then
-  echo "Error: exiftool is not installed. Please install it via 'brew install exiftool'." >&2
+  echo "Error: exiftool is not installed. Install it via 'brew install exiftool' (macOS) or 'apt-get install libimage-exiftool-perl' (Linux)." >&2
   exit 1
 fi
 
@@ -57,9 +64,15 @@ if [[ ! -d "$TARGET_DIR" ]]; then
     exit 1
 fi
 
-# Put logs in hidden subdirectory to avoid being copied by motionphoto2
-WORK_DIR="$TARGET_DIR/.workflow"
-mkdir -p "$WORK_DIR"
+# Logs go in a hidden .workflow/ subdirectory. In dry-run nothing is changed, so route
+# logs to a temp dir that is auto-removed on exit — the target stays untouched.
+if [[ "$DRY_RUN" == true ]]; then
+    WORK_DIR="$(mktemp -d)"
+    trap 'rm -rf "$WORK_DIR"' EXIT
+else
+    WORK_DIR="$TARGET_DIR/.workflow"
+    mkdir -p "$WORK_DIR"
+fi
 LOG_FILE="$WORK_DIR/rename.log"
 ERROR_LOG="$WORK_DIR/rename_errors.log"
 
@@ -110,5 +123,5 @@ if [[ -s "$ERROR_LOG" ]]; then
 else
     echo "" | tee -a "$LOG_FILE"
     echo "Done. No errors encountered." | tee -a "$LOG_FILE"
-    rm -f "$ERROR_LOG"
+    [[ -f "$ERROR_LOG" ]] && rm -f "$ERROR_LOG"
 fi

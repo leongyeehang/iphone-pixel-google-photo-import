@@ -6,6 +6,8 @@
 
 set -euo pipefail
 
+VERSION="1.0.0"
+
 usage() {
     cat <<'EOF'
 Usage: ungroup.sh [input_directory]
@@ -16,13 +18,20 @@ input directory is given. No files are deleted; name collisions are skipped with
 
 Options:
   -h, --help    Show this help and exit.
+      --version Print version and exit.
 EOF
 }
 
-if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
-    usage
-    exit 0
-fi
+case "${1:-}" in
+    -h|--help)
+        usage
+        exit 0
+        ;;
+    --version)
+        echo "ungroup.sh $VERSION"
+        exit 0
+        ;;
+esac
 
 INPUT_DIR="${1:-.}"
 

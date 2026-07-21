@@ -1,129 +1,215 @@
 #!/usr/bin/env bash
 
 # masterscript.sh: Automate the photo workflow (mux → rename → group)
-# Usage: ./masterscript.sh [target_directory]
+# Usage: ./masterscript.sh [options] [target_directory]
 # Supports resume: re-run to skip already-completed steps.
 
 set -euo pipefail
 
+VERSION="1.0.0"
+
 usage() {
     cat <<'EOF'
-Usage: masterscript.sh [target_directory]
+Usage: masterscript.sh [options] [target_directory]
 
-Automate the photo workflow: mux Live Photos -> rename by timestamp -> group by size.
+Batch-organize a folder of photos/videos:
+  1. (optional) fuse iPhone Live Photos into Google Motion Photos   [needs motionphoto2]
+  2. rename everything to YYYYMMDD_HHMMSS by capture date            [needs exiftool]
+  3. (optional) group into size-limited, date-named folders
+
 Runs on the current directory if no target is given. Supports resume: re-run to skip
-already-completed steps (checkpoints are kept in <target>/.workflow/).
+already-completed steps (checkpoints live in <target>/.workflow/).
 
 Options:
-  -h, --help    Show this help and exit.
+  --skip-mux        Skip Live-Photo muxing (step 1). Rename/group then operate IN PLACE
+                    on the target directory (no output subfolder is created).
+  --skip-rename     Skip the rename step (step 2).
+  --skip-group      Skip the size-grouping step (step 3).
+  --size SIZE       Group folder size (default 15G). Accepts K/M/G, e.g. 50G, 500M.
+  --output-name N   Name of the muxing output subfolder (default: muxed-photo).
+  --dry-run         Preview rename/group without changing anything. (Muxing cannot be
+                    previewed, so it is skipped in dry-run mode.)
+  -h, --help        Show this help and exit.
+      --version     Print version and exit.
 EOF
 }
 
-if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
-    usage
-    exit 0
-fi
+# Defaults
+DRY_RUN=false
+SKIP_MUX=false
+SKIP_RENAME=false
+SKIP_GROUP=false
+OUTPUT_NAME="muxed-photo"
+SIZE="15G"
+INPUT_DIR=""
+
+while [[ "$#" -gt 0 ]]; do
+  case "$1" in
+    -h|--help) usage; exit 0 ;;
+    --version) echo "masterscript.sh $VERSION"; exit 0 ;;
+    --dry-run) DRY_RUN=true; shift ;;
+    --skip-mux) SKIP_MUX=true; shift ;;
+    --skip-rename) SKIP_RENAME=true; shift ;;
+    --skip-group) SKIP_GROUP=true; shift ;;
+    --size)
+      SIZE="${2:-}"
+      [[ -z "$SIZE" ]] && { echo "Error: --size requires a value" >&2; exit 1; }
+      shift 2
+      ;;
+    --output-name)
+      OUTPUT_NAME="${2:-}"
+      [[ -z "$OUTPUT_NAME" ]] && { echo "Error: --output-name requires a value" >&2; exit 1; }
+      shift 2
+      ;;
+    -*) echo "Error: unknown option '$1'" >&2; usage; exit 1 ;;
+    *) INPUT_DIR="$1"; shift ;;
+  esac
+done
 
 # Resolve the directory where this script lives (for calling sibling scripts)
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Check for a command-line argument; use it as the input directory if provided.
-INPUT_DIR="${1:-.}"
+INPUT_DIR="${INPUT_DIR:-.}"
 
 # Check the directory exists BEFORE resolving it. Resolving with `cd` on a missing
-# directory would abort under `set -e` with a raw error, bypassing the friendly
-# message below.
+# directory would abort under `set -e` with a raw error, bypassing the message below.
 if [[ ! -d "$INPUT_DIR" ]]; then
     echo "Error: Directory '$INPUT_DIR' not found." >&2
     exit 1
 fi
-
-# Resolve to absolute path
 INPUT_DIR="$(cd "$INPUT_DIR" && pwd)"
 
-# Define the output directory for converted photos.
-MUXED_DIR="$INPUT_DIR/muxed-photo"
+# Muxing writes files, so it cannot be previewed. In dry-run, treat it as skipped.
+DRYRUN_SKIPPED_MUX=false
+if [[ "$DRY_RUN" == true && "$SKIP_MUX" == false ]]; then
+    SKIP_MUX=true
+    DRYRUN_SKIPPED_MUX=true
+fi
 
-# Logs and checkpoints go in a hidden subdirectory to avoid being copied by motionphoto2
+MUXED_DIR="$INPUT_DIR/$OUTPUT_NAME"
+
+# Checkpoints + consolidated log live in a hidden subdirectory (not used in dry-run).
 WORK_DIR="$INPUT_DIR/.workflow"
-mkdir -p "$WORK_DIR"
-
 CHECKPOINT_MUX="$WORK_DIR/.mux_done"
 CHECKPOINT_RENAME="$WORK_DIR/.rename_done"
 CHECKPOINT_GROUP="$WORK_DIR/.group_done"
-LOG_FILE="$WORK_DIR/workflow.log"
+if [[ "$DRY_RUN" == true ]]; then
+    LOG_FILE=/dev/null
+else
+    mkdir -p "$WORK_DIR"
+    LOG_FILE="$WORK_DIR/workflow.log"
+fi
 
 log() {
     local msg
     msg="[$(date '+%Y-%m-%d %H:%M:%S')] $*"
-    echo "$msg" | tee -a "$LOG_FILE"
+    if [[ "$DRY_RUN" == true ]]; then
+        echo "$msg"
+    else
+        echo "$msg" | tee -a "$LOG_FILE"
+    fi
 }
 
-# Disk space pre-flight check.
-# Use -k (1024-byte blocks) and -P (POSIX single-line output) for portable, consistent
-# sizing across macOS and Linux. On a resume run `du` also counts the existing
-# muxed-photo/ copy, which only over-estimates the requirement — a safe direction for a
-# "you may need ~2x" warning.
+if [[ "$SKIP_MUX" == true && "$SKIP_RENAME" == true && "$SKIP_GROUP" == true ]]; then
+    echo "Nothing to do: all steps skipped." >&2
+    exit 0
+fi
+
+# Disk-space pre-flight (portable: -k = 1024-byte blocks, -P = single-line output).
 input_size_kb=$(du -sk "$INPUT_DIR" | awk '{print $1}')
 input_size_gb=$(awk -v kb="$input_size_kb" 'BEGIN {printf "%.1f", kb / (1024*1024)}')
 free_space_kb=$(df -Pk "$INPUT_DIR" | awk 'NR==2 {print $4}')
 free_space_gb=$(awk -v kb="$free_space_kb" 'BEGIN {printf "%.1f", kb / (1024*1024)}')
-required_gb=$(awk -v sz="$input_size_gb" 'BEGIN {printf "%.1f", sz * 2}')
+if [[ "$SKIP_MUX" == true ]]; then
+    # No muxed copy is made, so rename/group work in place — negligible extra space.
+    required_gb="$input_size_gb"
+else
+    required_gb=$(awk -v sz="$input_size_gb" 'BEGIN {printf "%.1f", sz * 2}')
+fi
 
 log "Starting photo workflow in: $INPUT_DIR"
+[[ "$DRY_RUN" == true ]] && log "DRY RUN: no files will be changed."
+[[ "$DRYRUN_SKIPPED_MUX" == true ]] && log "Note: muxing cannot be previewed; skipping it in dry-run. Rename/group preview against the input files."
 log "Input size: ${input_size_gb}GB | Free space: ${free_space_gb}GB | Estimated need: ${required_gb}GB"
 
 if (( $(awk -v free="$free_space_gb" -v need="$required_gb" 'BEGIN {print (free < need) ? 1 : 0}') )); then
-    log "WARNING: Free disk space (${free_space_gb}GB) may not be enough. Need ~${required_gb}GB (2x input). Continue at your own risk."
+    log "WARNING: Free disk space (${free_space_gb}GB) may not be enough. Need ~${required_gb}GB. Continue at your own risk."
 fi
 
 # Step 1: Mux Live Photos (before rename to preserve original filenames for matching)
-if [[ -f "$CHECKPOINT_MUX" ]]; then
-    log "--- Step 1: Skipping muxing (already completed) ---"
+if [[ "$SKIP_MUX" == true ]]; then
+    log "--- Step 1: Muxing skipped ---"
+    TARGET="$INPUT_DIR"
+    if [[ "$DRY_RUN" == false ]]; then
+        log "Note: rename/group will operate IN PLACE on $INPUT_DIR (originals renamed/moved)."
+    fi
 else
-    log "--- Step 1: Converting Live Photos ---"
-    "$SCRIPT_DIR/run_mux_motionphoto.sh" "$INPUT_DIR" 2>&1 | tee -a "$LOG_FILE"
-    touch "$CHECKPOINT_MUX"
-    log "--- Step 1: Complete ---"
+    if [[ -f "$CHECKPOINT_MUX" ]]; then
+        log "--- Step 1: Skipping muxing (already completed) ---"
+    else
+        log "--- Step 1: Converting Live Photos ---"
+        "$SCRIPT_DIR/run_mux_motionphoto.sh" --output-name "$OUTPUT_NAME" "$INPUT_DIR" 2>&1 | tee -a "$LOG_FILE"
+        touch "$CHECKPOINT_MUX"
+        log "--- Step 1: Complete ---"
+    fi
+    if [[ ! -d "$MUXED_DIR" ]]; then
+        log "Error: '$MUXED_DIR' was not created by Step 1. Cannot proceed." >&2
+        exit 1
+    fi
+    TARGET="$MUXED_DIR"
 fi
 
-# Validate muxed directory exists before proceeding
-if [[ ! -d "$MUXED_DIR" ]]; then
-    log "Error: '$MUXED_DIR' was not created by Step 1. Cannot proceed." >&2
-    exit 1
-fi
-
-# Step 2: Rename the files in muxed-photo (originals in input dir stay untouched)
-if [[ -f "$CHECKPOINT_RENAME" ]]; then
+# Step 2: Rename the files (originals in input dir stay untouched unless --skip-mux)
+if [[ "$SKIP_RENAME" == true ]]; then
+    log "--- Step 2: Rename skipped ---"
+elif [[ "$DRY_RUN" == false && -f "$CHECKPOINT_RENAME" ]]; then
     log "--- Step 2: Skipping rename (already completed) ---"
 else
     log "--- Step 2: Renaming media files ---"
-    "$SCRIPT_DIR/rename_media.sh" "$MUXED_DIR" 2>&1 | tee -a "$LOG_FILE"
-    touch "$CHECKPOINT_RENAME"
+    if [[ "$DRY_RUN" == true ]]; then
+        "$SCRIPT_DIR/rename_media.sh" --dry-run "$TARGET" 2>&1 | tee -a "$LOG_FILE"
+    else
+        "$SCRIPT_DIR/rename_media.sh" "$TARGET" 2>&1 | tee -a "$LOG_FILE"
+        touch "$CHECKPOINT_RENAME"
+    fi
     log "--- Step 2: Complete ---"
 fi
 
 # Step 3: Group the files into folders
-if [[ -f "$CHECKPOINT_GROUP" ]]; then
+if [[ "$SKIP_GROUP" == true ]]; then
+    log "--- Step 3: Grouping skipped ---"
+elif [[ "$DRY_RUN" == false && -f "$CHECKPOINT_GROUP" ]]; then
     log "--- Step 3: Skipping grouping (already completed) ---"
 else
     log "--- Step 3: Grouping files by size ---"
-    "$SCRIPT_DIR/group_files_size.sh" "$MUXED_DIR" 2>&1 | tee -a "$LOG_FILE"
-    touch "$CHECKPOINT_GROUP"
+    if [[ "$DRY_RUN" == true ]]; then
+        "$SCRIPT_DIR/group_files_size.sh" --dry-run --size "$SIZE" "$TARGET" 2>&1 | tee -a "$LOG_FILE"
+    else
+        "$SCRIPT_DIR/group_files_size.sh" --size "$SIZE" "$TARGET" 2>&1 | tee -a "$LOG_FILE"
+        touch "$CHECKPOINT_GROUP"
+    fi
     log "--- Step 3: Complete ---"
+fi
+
+if [[ "$DRY_RUN" == true ]]; then
+    log "--- Dry run complete (no changes made) ---"
+    exit 0
 fi
 
 # Clean up checkpoint files on success
 rm -f "$CHECKPOINT_MUX" "$CHECKPOINT_RENAME" "$CHECKPOINT_GROUP"
 
 log "--- Workflow complete ---"
-log "Results are in: $MUXED_DIR"
+log "Results are in: $TARGET"
 log "Full log: $LOG_FILE"
 
-# Move the workflow log to the output directory for reference, then clean up
-cp "$LOG_FILE" "$MUXED_DIR/workflow.log" 2>/dev/null || true
+# Preserve the consolidated log into the results dir, then clean up work dirs.
+cp "$LOG_FILE" "$TARGET/workflow.log" 2>/dev/null || true
 rm -rf "$WORK_DIR"
-# rename_media.sh writes its own logs into muxed-photo/.workflow/ (that dir is its
-# target). The consolidated workflow.log already captured that output via tee, so
-# remove the leftover hidden dir too.
-rm -rf "$MUXED_DIR/.workflow"
+# rename_media.sh writes its own logs into <target>/.workflow/; if that's a different
+# directory from WORK_DIR (i.e. muxing ran), remove the leftover too.
+if [[ "$TARGET" != "$INPUT_DIR" ]]; then
+    rm -rf "$TARGET/.workflow"
+fi
+
+exit 0

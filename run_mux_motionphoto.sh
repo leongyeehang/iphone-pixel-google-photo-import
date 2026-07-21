@@ -1,27 +1,52 @@
 #!/usr/bin/env bash
 
 # run_mux_motionphoto.sh: Convert iPhone Live Photos to Google Motion Photos
-# Usage: ./run_mux_motionphoto.sh <input_directory>
+# Usage: ./run_mux_motionphoto.sh [--output-name NAME] <input_directory>
 
 set -euo pipefail
 
+VERSION="1.0.0"
+
 usage() {
     cat <<'EOF'
-Usage: run_mux_motionphoto.sh <input_directory>
+Usage: run_mux_motionphoto.sh [--output-name NAME] <input_directory>
 
 Convert iPhone Live Photos (JPG/HEIC + companion MOV) into Google Motion Photos using the
-installed `motionphoto2` binary. Output is written to <input_directory>/muxed-photo/;
-original files are not modified. Non-Live-Photo files are copied as-is.
+installed `motionphoto2` binary. Output is written to <input_directory>/<output-name>/
+(default: muxed-photo); original files are not modified. Non-Live-Photo files are copied
+as-is.
 
 Options:
-  -h, --help    Show this help and exit.
+  --output-name NAME   Name of the output subfolder (default: muxed-photo).
+  -h, --help           Show this help and exit.
+      --version        Print version and exit.
 EOF
 }
 
-if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
-    usage
-    exit 0
-fi
+OUTPUT_NAME="muxed-photo"
+INPUT_DIR=""
+
+while [[ "$#" -gt 0 ]]; do
+  case "$1" in
+    -h|--help)
+      usage
+      exit 0
+      ;;
+    --version)
+      echo "run_mux_motionphoto.sh $VERSION"
+      exit 0
+      ;;
+    --output-name)
+      OUTPUT_NAME="${2:-}"
+      [[ -z "$OUTPUT_NAME" ]] && { echo "Error: --output-name requires a value" >&2; exit 1; }
+      shift 2
+      ;;
+    *)
+      INPUT_DIR="$1"
+      shift
+      ;;
+  esac
+done
 
 # Check for the existence of the `motionphoto2` binary.
 if ! command -v motionphoto2 &> /dev/null; then
@@ -29,13 +54,11 @@ if ! command -v motionphoto2 &> /dev/null; then
     exit 1
 fi
 
-# Require input directory as argument
-if [[ -z "${1:-}" ]]; then
-    echo "Usage: $0 <input_directory>" >&2
+# Require input directory
+if [[ -z "$INPUT_DIR" ]]; then
+    echo "Usage: $0 [--output-name NAME] <input_directory>" >&2
     exit 1
 fi
-
-INPUT_DIR="$1"
 
 # Check if the input directory exists.
 if [[ ! -d "$INPUT_DIR" ]]; then
@@ -44,7 +67,7 @@ if [[ ! -d "$INPUT_DIR" ]]; then
 fi
 
 # Define the output directory and error log.
-OUTPUT_DIR="$INPUT_DIR/muxed-photo"
+OUTPUT_DIR="$INPUT_DIR/$OUTPUT_NAME"
 ERROR_LOG="$OUTPUT_DIR/muxing_errors.log"
 
 # Create the output directory if it doesn't exist.

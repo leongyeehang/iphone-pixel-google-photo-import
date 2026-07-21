@@ -1,29 +1,51 @@
 #!/usr/bin/env bash
 
-# group_files_size.sh: Group files into ~15GB folders named by date range
-# Usage: ./group_files_size.sh [--dry-run] [input_directory]
+# group_files_size.sh: Group files into size-limited folders named by date range
+# Usage: ./group_files_size.sh [--dry-run] [--size SIZE] [input_directory]
 # Dates are parsed from renamed filenames (YYYYMMDD_HHMMSS.ext) first,
 # falling back to filesystem creation date.
 
 set -euo pipefail
 
+VERSION="1.0.0"
+
 usage() {
     cat <<'EOF'
-Usage: group_files_size.sh [--dry-run] [input_directory]
+Usage: group_files_size.sh [--dry-run] [--size SIZE] [input_directory]
 
-Group files into ~15GB folders named by date range (YYMMDD-YYMMDD-#.#GB). Dates are
-parsed from renamed filenames (YYYYMMDD_HHMMSS) first, falling back to filesystem
+Group files into size-limited folders named by date range (YYMMDD-YYMMDD-#.#GB). Dates
+are parsed from renamed filenames (YYYYMMDD_HHMMSS) first, falling back to filesystem
 creation date. Runs on the current directory if no input directory is given.
 
 Options:
+  --size SIZE   Target folder size (default 15G). Accepts K/M/G suffixes, e.g. 50G, 500M.
   --dry-run     Preview the folders that would be created; make no changes.
   -h, --help    Show this help and exit.
+      --version Print version and exit.
 EOF
+}
+
+# parse_size: convert a human size (15G, 500M, 2K, 1.5G, or plain bytes) to an integer
+# number of bytes on stdout. Returns non-zero on invalid input.
+parse_size() {
+    local input="$1"
+    if [[ "$input" =~ ^([0-9]+(\.[0-9]+)?)([KkMmGg]?)[Bb]?$ ]]; then
+        local num="${BASH_REMATCH[1]}" unit="${BASH_REMATCH[3]}" mult=1
+        case "$unit" in
+            K|k) mult=1024 ;;
+            M|m) mult=$((1024 * 1024)) ;;
+            G|g) mult=$((1024 * 1024 * 1024)) ;;
+        esac
+        awk -v n="$num" -v m="$mult" 'BEGIN { printf "%d", n * m }'
+        return 0
+    fi
+    return 1
 }
 
 # Defaults
 DRY_RUN=false
 INPUT_DIR=""
+SIZE_INPUT="15G"
 
 # Parse arguments
 while [[ "$#" -gt 0 ]]; do
@@ -32,8 +54,17 @@ while [[ "$#" -gt 0 ]]; do
       DRY_RUN=true
       shift
       ;;
+    --size)
+      SIZE_INPUT="${2:-}"
+      [[ -z "$SIZE_INPUT" ]] && { echo "Error: --size requires a value" >&2; exit 1; }
+      shift 2
+      ;;
     -h|--help)
       usage
+      exit 0
+      ;;
+    --version)
+      echo "group_files_size.sh $VERSION"
       exit 0
       ;;
     *)
@@ -44,6 +75,17 @@ while [[ "$#" -gt 0 ]]; do
 done
 
 INPUT_DIR="${INPUT_DIR:-.}"
+
+# Resolve the group size limit (bytes)
+if ! GROUP_SIZE_LIMIT=$(parse_size "$SIZE_INPUT"); then
+    echo "Error: invalid --size '$SIZE_INPUT' (use e.g. 15G, 500M, 2K, or a byte count)." >&2
+    exit 1
+fi
+if (( GROUP_SIZE_LIMIT <= 0 )); then
+    echo "Error: --size must be greater than zero (got '$SIZE_INPUT')." >&2
+    exit 1
+fi
+limit_gb=$(awk -v b="$GROUP_SIZE_LIMIT" 'BEGIN { printf "%.1f", b / (1024^3) }')
 
 # Check if the input directory exists
 if [[ ! -d "$INPUT_DIR" ]]; then
@@ -107,8 +149,7 @@ if [[ ! -s "$files_list" ]]; then
     exit 0
 fi
 
-# Grouping parameters
-GROUP_SIZE_LIMIT=$((15 * 1024 * 1024 * 1024))  # 15GB in bytes
+# Grouping state
 current_group_size=0
 current_group_files=()
 group_min_epoch=""
@@ -163,7 +204,7 @@ while IFS= read -r FILE; do
     # group. Warn so the oversized folder isn't a surprise.
     if (( file_size > GROUP_SIZE_LIMIT )); then
         size_gb=$(awk -v b="$file_size" 'BEGIN {printf "%.1f", b / (1024^3)}')
-        echo "Warning: '$FILE' (${size_gb}GB) exceeds the ~15GB group limit; it will form its own over-limit folder." >&2
+        echo "Warning: '$FILE' (${size_gb}GB) exceeds the ${limit_gb}GB group limit; it will form its own over-limit folder." >&2
     fi
 
     # Get file epoch using the fallback chain
