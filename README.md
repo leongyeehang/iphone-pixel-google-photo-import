@@ -148,6 +148,9 @@ bats test                # test suite (brew install bats-core)
 
 GitHub Actions runs `shellcheck` and the `bats` suite on every push (see `.github/workflows/ci.yml`).
 
+> **Follow-up (deferred):** the CI workflow was added in `59fbd70` but its first run on GitHub hasn't been confirmed yet. Check the repo's **Actions** tab; if it's green, optionally add a status badge at the top of this README:
+> `![CI](https://github.com/leongyeehang/iphone-pixel-google-photo-import/actions/workflows/ci.yml/badge.svg)`
+
 ## License
 
 MIT — see [LICENSE](LICENSE). The bundled `MotionPhoto2-main/` tool is a separate MIT-licensed project by Petr Vyskocil (see its own `LICENSE`); this workflow calls the installed `motionphoto2` binary rather than that source.
