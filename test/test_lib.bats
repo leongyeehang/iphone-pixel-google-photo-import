@@ -34,3 +34,26 @@ setup() {
   run is_media_file "shot.png"; [ "$status" -ne 0 ]
   run is_media_file "pic.jpg";  [ "$status" -eq 0 ]
 }
+
+@test "parse_size handles K/M/G suffixes and rejects bad input" {
+  run parse_size "15G";  [ "$status" -eq 0 ]; [ "$output" = "16106127360" ]
+  run parse_size "500M"; [ "$status" -eq 0 ]; [ "$output" = "524288000" ]
+  run parse_size "2K";   [ "$status" -eq 0 ]; [ "$output" = "2048" ]
+  run parse_size "1024"; [ "$status" -eq 0 ]; [ "$output" = "1024" ]
+  run parse_size "bogus";[ "$status" -ne 0 ]
+}
+
+@test "epoch_from_filename_or_fs parses YYYYMMDD_HHMMSS" {
+  run epoch_from_filename_or_fs "20250101_120000.JPG"
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ ^[0-9]+$ ]]
+}
+
+@test "stat_size and dir_size_kb work on real files" {
+  tmp="$(mktemp -d)"
+  printf 'abcde' > "$tmp/f.jpg"
+  run stat_size "$tmp/f.jpg"; [ "$status" -eq 0 ]; [ "$output" = "5" ]
+  run dir_size_kb "$tmp";     [ "$status" -eq 0 ]; [[ "$output" =~ ^[0-9]+$ ]]
+  run dir_size_kb "$tmp/nope";[ "$status" -eq 0 ]; [ "$output" = "0" ]
+  rm -rf "$tmp"
+}

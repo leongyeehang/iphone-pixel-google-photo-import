@@ -37,3 +37,58 @@ is_video_file() {
     return 1
 }
 is_media_file() { is_image_file "$1" || is_video_file "$1"; }
+
+# --- Portable filesystem / date / size helpers --------------------------------
+stat_size() {
+    if [[ "$OSTYPE" == "darwin"* ]]; then stat -f "%z" "$1"; else stat -c "%s" "$1"; fi
+}
+
+stat_ctime() {
+    if [[ "$OSTYPE" == "darwin"* ]]; then
+        stat -f "%B" "$1"
+    else
+        local ctime; ctime=$(stat -c "%W" "$1")
+        if [[ "$ctime" == "0" ]]; then stat -c "%Y" "$1"; else echo "$ctime"; fi
+    fi
+}
+
+epoch_from_filename_or_fs() {
+    local base; base=$(basename "$1")
+    if [[ "$base" =~ ^([0-9]{4})([0-9]{2})([0-9]{2})_([0-9]{2})([0-9]{2})([0-9]{2}) ]]; then
+        local y="${BASH_REMATCH[1]}" mo="${BASH_REMATCH[2]}" d="${BASH_REMATCH[3]}"
+        local h="${BASH_REMATCH[4]}" mi="${BASH_REMATCH[5]}" s="${BASH_REMATCH[6]}"
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            date -j -f "%Y%m%d%H%M%S" "${y}${mo}${d}${h}${mi}${s}" +"%s" 2>/dev/null && return
+        else
+            date -d "${y}-${mo}-${d} ${h}:${mi}:${s}" +"%s" 2>/dev/null && return
+        fi
+    fi
+    stat_ctime "$1"
+}
+
+epoch_to_yymmdd() {
+    if [[ "$OSTYPE" == "darwin"* ]]; then date -j -f "%s" "$1" +"%y%m%d"; else date -d "@$1" +"%y%m%d"; fi
+}
+epoch_to_ymd() {
+    if [[ "$OSTYPE" == "darwin"* ]]; then date -j -f "%s" "$1" +"%Y-%m-%d"; else date -d "@$1" +"%Y-%m-%d"; fi
+}
+
+dir_size_kb() {
+    [[ -d "$1" ]] || { echo 0; return 0; }
+    du -sk "$1" | awk '{print $1}'
+}
+
+parse_size() {
+    local input="$1"
+    if [[ "$input" =~ ^([0-9]+(\.[0-9]+)?)([KkMmGg]?)[Bb]?$ ]]; then
+        local num="${BASH_REMATCH[1]}" unit="${BASH_REMATCH[3]}" mult=1
+        case "$unit" in
+            K|k) mult=1024 ;;
+            M|m) mult=$((1024 * 1024)) ;;
+            G|g) mult=$((1024 * 1024 * 1024)) ;;
+        esac
+        awk -v n="$num" -v m="$mult" 'BEGIN { printf "%d", n * m }'
+        return 0
+    fi
+    return 1
+}
