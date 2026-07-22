@@ -91,6 +91,15 @@ process_group() {
     total_size_gb=$(awk -v bytes="$current_group_size" 'BEGIN {printf "%.1f", bytes / (1024^3)}')
     folder_name="${min_date}-${max_date}-${total_size_gb}GB"
 
+    # Enforce the shared naming contract: a folder we create must match the
+    # GROUP_FOLDER_GLOB that ungroup.sh uses to find it. Loud failure beats
+    # silent drift between the two scripts.
+    # shellcheck disable=SC2053  # RHS is an intentional glob pattern, not a literal
+    if [[ "$folder_name" != $GROUP_FOLDER_GLOB ]]; then
+        echo "Internal error: folder name '$folder_name' does not match GROUP_FOLDER_GLOB." >&2
+        exit 1
+    fi
+
     if [[ "$DRY_RUN" == true ]]; then
         echo "[DRY RUN] Would create folder: $folder_name (${#current_group_files[@]} files, ${total_size_gb}GB)"
     else
@@ -102,6 +111,9 @@ process_group() {
             fi
         done
     fi
+    # Use arithmetic assignment (not ((groups_created++))): a post-increment whose
+    # pre-value is 0 makes (( )) return exit status 1, which can abort the script
+    # under `set -e` on some bash builds.
     groups_created=$((groups_created + 1))
     COUNTER=$((COUNTER + ${#current_group_files[@]}))
 }

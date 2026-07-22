@@ -76,8 +76,8 @@ make_sparse() {
   run "$DIR/group_files_size.sh" --size 15G "$TMP"
   [ "$status" -eq 0 ]
   [ -f "$TMP/notes.txt" ]
-  run bash -c "ls -d '$TMP'/*/"
-  [[ "$output" =~ GB ]]
+  run bash -c "ls -d '$TMP'/*/ | wc -l | tr -d ' '"
+  [ "$output" = "1" ]
 }
 
 @test "group prints its shared version" {
