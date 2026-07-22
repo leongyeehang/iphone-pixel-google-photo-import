@@ -37,3 +37,13 @@ teardown() {
   [ ! -e "$TMP/.workflow" ]
   [ ! -e "$TMP/muxed-photo" ]
 }
+
+@test "a PNG screenshot (filesystem date only) gets renamed" {
+  printf 'x' > "$TMP/Screenshot.PNG"
+  touch -t 202501011200.00 "$TMP/Screenshot.PNG"
+  run "$DIR/rename_media.sh" "$TMP"
+  [ "$status" -eq 0 ]
+  [ ! -f "$TMP/Screenshot.PNG" ]
+  run bash -c "ls '$TMP'/2*.PNG"
+  [ "$status" -eq 0 ]
+}
