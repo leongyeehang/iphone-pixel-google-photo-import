@@ -60,3 +60,28 @@ make_sparse() {
   [ -f "$TMP/20250101_120000.JPG" ]
   [ -f "$TMP/20250102_120000.JPG" ]
 }
+
+@test "grouped folder is named YYMMDD-YYMMDD-#.#GB with correct dates" {
+  make_sparse $((1024 * 1024)) "$TMP/20250101_120000.JPG"
+  make_sparse $((1024 * 1024)) "$TMP/20250115_120000.JPG"
+  run "$DIR/group_files_size.sh" --size 15G "$TMP"
+  [ "$status" -eq 0 ]
+  run bash -c "ls -d '$TMP'/*/"
+  [[ "$output" =~ 250101-250115-[0-9.]+GB ]]
+}
+
+@test "grouping ignores non-media files (leaves them in place)" {
+  make_sparse $((1024 * 1024)) "$TMP/20250101_120000.JPG"
+  printf 'hello' > "$TMP/notes.txt"
+  run "$DIR/group_files_size.sh" --size 15G "$TMP"
+  [ "$status" -eq 0 ]
+  [ -f "$TMP/notes.txt" ]
+  run bash -c "ls -d '$TMP'/*/"
+  [[ "$output" =~ GB ]]
+}
+
+@test "group prints its shared version" {
+  run "$DIR/group_files_size.sh" --version
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"group_files_size.sh 1.1.0"* ]]
+}
