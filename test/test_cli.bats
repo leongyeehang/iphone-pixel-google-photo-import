@@ -44,3 +44,13 @@ setup() {
   [ "$status" -ne 0 ]
   [[ "$output" == *"unknown option"* ]]
 }
+
+@test "run_mux warns and skips (exit 0) when motionphoto2 is absent" {
+  command -v motionphoto2 >/dev/null 2>&1 && skip "motionphoto2 is installed"
+  TMP="$(mktemp -d)"
+  printf 'x' > "$TMP/IMG_0001.JPG"
+  run "$DIR/run_mux_motionphoto.sh" "$TMP"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"motionphoto2"* ]]
+  rm -rf "$TMP"
+}
