@@ -23,8 +23,9 @@ Runs on the current directory if no target is given. Supports resume: re-run to 
 already-completed steps (checkpoints live in <target>/.workflow/).
 
 Options:
-  --skip-mux        Skip Live-Photo muxing (step 1). Rename/group then operate IN PLACE
-                    on the target directory (no output subfolder is created).
+  --skip-mux        Skip Live-Photo muxing (step 1). Rename/group then operate on a COPY
+                    in <output-name>/ by default (originals untouched). Use --in-place
+                    for the old in-place behavior.
   --skip-rename     Skip the rename step (step 2).
   --skip-group      Skip the size-grouping step (step 3).
   --size SIZE       Group folder size (default 15G). Accepts K/M/G, e.g. 50G, 500M.

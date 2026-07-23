@@ -47,8 +47,9 @@ Run it from anywhere — the script resolves its own location. Omit the director
 ## Options — `masterscript.sh`
 
 ```
---skip-mux        Skip Live-Photo muxing (step 1). Rename/group then operate IN PLACE
-                  on the target directory (no output subfolder is created).
+--skip-mux        Skip Live-Photo muxing (step 1). Rename/group then operate on a COPY
+                  in <output-name>/ by default (originals untouched). Use --in-place for
+                  the old in-place behavior.
 --skip-rename     Skip the rename step (step 2).
 --skip-group      Skip the size-grouping step (step 3).
 --size SIZE       Group folder size (default 15G). Accepts K/M/G, e.g. 50G, 500M.
@@ -57,8 +58,9 @@ Run it from anywhere — the script resolves its own location. Omit the director
                   previewed, so it is skipped in dry-run mode.)
 --in-place        When muxing does not run, rename/group the ORIGINALS in place
                   (no output copy). Default is to work on a copy in <output-name>/.
---ledger PATH     Append a per-import summary row to PATH (default: a
-                  library-ledger.tsv inside the results directory; or PHOTO_LEDGER).
+--ledger PATH     Append a per-import summary row to PATH. Precedence: --ledger, then
+                  PHOTO_LEDGER, then the default library-ledger.tsv inside the results
+                  directory.
 --no-ledger       Do not write a ledger row for this run.
 -h, --help        Show help and exit.
     --version     Print version and exit.
@@ -126,9 +128,10 @@ takes effect immediately. If a config file is ever added later, it will be a pla
   restore the pre-v1.1 behavior (rename/group the originals directly, no copy).
 - **Graceful mux skip.** A missing `motionphoto2` binary is now a warning, not a fatal error —
   `masterscript.sh` skips muxing and continues with rename/group on a copy.
-- **Filesystem-date fallback for photos.** A photo whose EXIF has no usable date tag (common
-  for some screenshots) now falls back to `FileModifyDate`, so it still renames
-  deterministically instead of being skipped.
+- **Filesystem-date fallback for photos (and videos, as before).** A photo whose EXIF has no
+  usable date tag (common for some screenshots) now falls back to `FileModifyDate`, so it
+  still renames deterministically instead of being skipped. Videos already led with
+  `FileModifyDate` in their tag chain, so this fallback behavior is the same for both.
 - **New end-of-run summary + ledger.** Every real (non-dry-run) run prints a summary (date
   range, image/video/motion-photo counts, total size, batch count) and appends a row to
   `library-ledger.tsv` inside the target directory. Use `--ledger PATH` / `PHOTO_LEDGER` to
@@ -224,7 +227,7 @@ shellcheck *.sh          # lint (brew install shellcheck)
 bats test                # test suite (brew install bats-core)
 ```
 
-GitHub Actions runs `shellcheck` and the `bats` suite on every push (see
+GitHub Actions runs `shellcheck` and the `bats` suite on every push and pull request (see
 `.github/workflows/ci.yml`); the badge at the top of this README reflects the current status.
 
 ## License
