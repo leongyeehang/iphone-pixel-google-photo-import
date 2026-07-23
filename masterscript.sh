@@ -33,6 +33,9 @@ Options:
                     previewed, so it is skipped in dry-run mode.)
   --in-place        When muxing does not run, rename/group the ORIGINALS in place
                     (no output copy). Default is to work on a copy in <output-name>/.
+  --ledger PATH     Append a per-import summary row to PATH (default: a
+                    library-ledger.tsv inside the results directory; or PHOTO_LEDGER).
+  --no-ledger       Do not write a ledger row for this run.
   -h, --help        Show this help and exit.
       --version     Print version and exit.
 EOF
@@ -47,6 +50,8 @@ IN_PLACE=false
 OUTPUT_NAME="$PHOTO_OUTPUT_NAME"
 SIZE="$PHOTO_GROUP_SIZE"
 INPUT_DIR=""
+LEDGER_PATH=""
+NO_LEDGER=false
 
 while [[ "$#" -gt 0 ]]; do
   case "$1" in
@@ -57,6 +62,11 @@ while [[ "$#" -gt 0 ]]; do
     --skip-rename) SKIP_RENAME=true; shift ;;
     --skip-group) SKIP_GROUP=true; shift ;;
     --in-place) IN_PLACE=true; shift ;;
+    --ledger)
+      LEDGER_PATH="${2:-}"
+      [[ -z "$LEDGER_PATH" ]] && { echo "Error: --ledger requires a path" >&2; exit 1; }
+      shift 2 ;;
+    --no-ledger) NO_LEDGER=true; shift ;;
     --size)
       SIZE="${2:-}"
       [[ -z "$SIZE" ]] && { echo "Error: --size requires a value" >&2; exit 1; }
@@ -114,6 +124,50 @@ log() {
     else
         echo "$msg" | tee -a "$LOG_FILE"
     fi
+}
+
+write_summary_and_ledger() {
+    local images=0 videos=0 total=0 min_epoch="" max_epoch="" e f
+    while IFS= read -r -d '' f; do
+        is_media_file "$f" || continue
+        total=$((total + 1))
+        if is_image_file "$f"; then images=$((images + 1)); else videos=$((videos + 1)); fi
+        e=$(epoch_from_filename_or_fs "$f")
+        if [[ -z "$min_epoch" ]] || (( e < min_epoch )); then min_epoch=$e; fi
+        if [[ -z "$max_epoch" ]] || (( e > max_epoch )); then max_epoch=$e; fi
+    done < <(find "$TARGET" -type f ! -name ".*" -print0)
+
+    local date_from="-" date_to="-"
+    [[ -n "$min_epoch" ]] && date_from=$(epoch_to_ymd "$min_epoch")
+    [[ -n "$max_epoch" ]] && date_to=$(epoch_to_ymd "$max_epoch")
+
+    local batches=0 d
+    for d in "$TARGET"/$GROUP_FOLDER_GLOB; do [[ -d "$d" ]] && batches=$((batches + 1)); done
+
+    local total_size_gb
+    total_size_gb=$(awk -v kb="$(dir_size_kb "$TARGET")" 'BEGIN {printf "%.1f", kb / (1024*1024)}')
+
+    local motion_photos="-"
+    if [[ "$SKIP_MUX" == false ]] && command -v exiftool &> /dev/null; then
+        # shellcheck disable=SC2016  # single quotes are exiftool's own -if/-p syntax, not shell expansion
+        motion_photos=$(exiftool -q -q -if '$XMP-GCamera:MotionPhoto' -p '1' -r "$TARGET" 2>/dev/null | wc -l | tr -d ' ')
+    fi
+
+    log "Summary: $date_from..$date_to | images=$images videos=$videos motion=$motion_photos files=$total size=${total_size_gb}GB batches=$batches"
+
+    if [[ "$NO_LEDGER" == true ]]; then return 0; fi
+    local ledger
+    if [[ -n "$LEDGER_PATH" ]]; then ledger="$LEDGER_PATH"
+    elif [[ -n "$PHOTO_LEDGER" ]]; then ledger="$PHOTO_LEDGER"
+    else ledger="$TARGET/library-ledger.tsv"; fi
+
+    if [[ ! -f "$ledger" ]]; then
+        printf 'run_completed_at\timport_dir\ttarget_dir\tdate_from\tdate_to\timages\tvideos\tmotion_photos\ttotal_files\ttotal_size_gb\tbatches\n' > "$ledger"
+    fi
+    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+        "$(date '+%Y-%m-%d %H:%M:%S')" "$INPUT_DIR" "$TARGET" "$date_from" "$date_to" \
+        "$images" "$videos" "$motion_photos" "$total" "$total_size_gb" "$batches" >> "$ledger"
+    log "Ledger updated: $ledger"
 }
 
 if [[ "$SKIP_MUX" == true && "$SKIP_RENAME" == true && "$SKIP_GROUP" == true ]]; then
@@ -236,6 +290,8 @@ rm -f "$CHECKPOINT_MUX" "$CHECKPOINT_RENAME" "$CHECKPOINT_GROUP"
 log "--- Workflow complete ---"
 log "Results are in: $TARGET"
 log "Full log: $LOG_FILE"
+
+write_summary_and_ledger
 
 # Preserve the consolidated log into the results dir, then clean up work dirs.
 cp "$LOG_FILE" "$TARGET/workflow.log" 2>/dev/null || true

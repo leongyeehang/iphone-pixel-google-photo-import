@@ -66,3 +66,35 @@ teardown() {
   run bash -c "ls '$TMP'/2*.PNG"
   [ "$status" -eq 0 ]
 }
+
+@test "masterscript skips an already-completed rename checkpoint" {
+  printf 'x' > "$TMP/IMG_0001.JPG"
+  mkdir -p "$TMP/.workflow"; touch "$TMP/.workflow/.rename_done"
+  run "$DIR/masterscript.sh" --skip-mux --in-place --skip-group "$TMP"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Skipping rename (already completed)"* ]]
+}
+
+@test "masterscript writes a summary and a ledger row inside the target" {
+  printf 'x' > "$TMP/IMG_0001.JPG"
+  run "$DIR/masterscript.sh" --skip-mux --skip-group "$TMP"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"Summary:"* ]]
+  [ -f "$TMP/muxed-photo/library-ledger.tsv" ]
+  run bash -c "wc -l < '$TMP/muxed-photo/library-ledger.tsv' | tr -d ' '"
+  [ "$output" = "2" ]   # header + one row
+}
+
+@test "masterscript --no-ledger writes no ledger" {
+  printf 'x' > "$TMP/IMG_0001.JPG"
+  run "$DIR/masterscript.sh" --skip-mux --skip-group --no-ledger "$TMP"
+  [ "$status" -eq 0 ]
+  [ ! -f "$TMP/muxed-photo/library-ledger.tsv" ]
+}
+
+@test "masterscript --dry-run writes no ledger" {
+  printf 'x' > "$TMP/IMG_0001.JPG"
+  run "$DIR/masterscript.sh" --dry-run "$TMP"
+  [ "$status" -eq 0 ]
+  [ ! -e "$TMP/muxed-photo" ]
+}
