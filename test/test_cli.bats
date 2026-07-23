@@ -54,3 +54,9 @@ setup() {
   [[ "$output" == *"motionphoto2"* ]]
   rm -rf "$TMP"
 }
+
+@test "ungroup prints its shared version" {
+  run "$DIR/ungroup.sh" --version
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"ungroup.sh 1.1.0"* ]]
+}

@@ -6,7 +6,9 @@
 
 set -euo pipefail
 
-VERSION="1.0.0"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib.sh
+. "$SCRIPT_DIR/lib.sh" || { echo "Error: lib.sh not found next to $0" >&2; exit 1; }
 
 usage() {
     cat <<'EOF'
@@ -28,7 +30,7 @@ case "${1:-}" in
         exit 0
         ;;
     --version)
-        echo "ungroup.sh $VERSION"
+        echo "ungroup.sh $WORKFLOW_VERSION"
         exit 0
         ;;
 esac
@@ -46,7 +48,7 @@ cd "$INPUT_DIR" || exit 1
 moved=0
 folders_removed=0
 
-for folder in [0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]-*GB; do
+for folder in $GROUP_FOLDER_GLOB; do
     [[ -d "$folder" ]] || continue
 
     echo "Ungrouping: $folder/"
