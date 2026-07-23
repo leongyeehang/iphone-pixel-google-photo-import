@@ -1,5 +1,7 @@
 # Photo Import & Organize Workflow
 
+![CI](https://github.com/leongyeehang/iphone-pixel-google-photo-import/actions/workflows/ci.yml/badge.svg)
+
 Batch-organize a folder of photos and videos in up to three steps:
 
 1. **(optional) Mux** — fuse iPhone **Live Photos** (`IMG_1234.JPG` + `IMG_1234.MOV`) into a single Google **Motion Photo**, so the motion survives on Android / Google Photos.
@@ -19,6 +21,8 @@ Every step is optional, so the tool is useful whether you're an iPhone user prep
 | **[motionphoto2](https://github.com/PetrVys/MotionPhoto2/releases)** | muxing only (step 1) | download the release binary, `chmod +x`, put it on your `PATH` |
 
 If you don't have iPhone Live Photos, run with `--skip-mux` and you won't need `motionphoto2` at all.
+
+As of v1.1, you don't even need `--skip-mux` to avoid a hard failure: if `motionphoto2` isn't installed, `masterscript.sh` detects that automatically, prints a warning, skips muxing, and continues with rename/group. Muxing is no longer required to run the tool at all.
 
 Developed and used on **macOS**; Linux support is built in (portable `date`/`stat`/`df` branches) and exercised in CI. On Windows, use WSL.
 
@@ -43,14 +47,21 @@ Run it from anywhere — the script resolves its own location. Omit the director
 ## Options — `masterscript.sh`
 
 ```
---skip-mux        Skip Live-Photo muxing (step 1). Rename/group then operate IN PLACE
-                  on the target directory (no output subfolder is created).
+--skip-mux        Skip Live-Photo muxing (step 1). Rename/group then operate on a COPY
+                  in <output-name>/ by default (originals untouched). Use --in-place for
+                  the old in-place behavior.
 --skip-rename     Skip the rename step (step 2).
 --skip-group      Skip the size-grouping step (step 3).
 --size SIZE       Group folder size (default 15G). Accepts K/M/G, e.g. 50G, 500M.
 --output-name N   Name of the muxing output subfolder (default: muxed-photo).
---dry-run         Preview rename/group without changing anything. (Muxing writes files,
-                  so it is skipped in dry-run mode.)
+--dry-run         Preview rename/group without changing anything. (Muxing cannot be
+                  previewed, so it is skipped in dry-run mode.)
+--in-place        When muxing does not run, rename/group the ORIGINALS in place
+                  (no output copy). Default is to work on a copy in <output-name>/.
+--ledger PATH     Append a per-import summary row to PATH. Precedence: --ledger, then
+                  PHOTO_LEDGER, then the default library-ledger.tsv inside the results
+                  directory.
+--no-ledger       Do not write a ledger row for this run.
 -h, --help        Show help and exit.
     --version     Print version and exit.
 ```
@@ -64,6 +75,71 @@ Each step is also a standalone script (all support `-h/--help` and `--version`):
 ./ungroup.sh             <dir>          # reverse a grouping, to re-group differently
 ```
 
+## Configuration
+
+Every tunable has a built-in default that reproduces the author's current iPhone → Pixel
+behavior, defined once in `lib.sh` using the bash idiom `: "${VAR:=default}"`. Override any
+of them per run via an environment variable, without touching a file:
+
+**Precedence (highest wins): command-line flag → environment variable → built-in default.**
+
+| Variable | Default | Overrides |
+|---|---|---|
+| `PHOTO_GROUP_SIZE` | `15G` | grouped-folder size cap (same as `--size`) |
+| `PHOTO_OUTPUT_NAME` | `muxed-photo` | mux/copy output subfolder name (same as `--output-name`) |
+| `PHOTO_IMAGE_EXTS` | `jpg jpeg heic heif dng png tif tiff gif bmp webp` | recognized image extensions (rename & group) |
+| `PHOTO_VIDEO_EXTS` | `mov mp4 m4v avi 3gp 3g2 mts m2ts mkv wmv` | recognized video extensions (rename & group) |
+| `PHOTO_DATE_TAGS` | `FileModifyDate FileCreateDate DateTimeCreated XMP:CreateDate CreateDate DateTimeOriginal` | exiftool tag chain used for photo dates |
+| `PHOTO_VIDEO_DATE_TAGS` | `FileModifyDate FileCreateDate TrackCreateDate MediaCreateDate QuickTime:CreateDate` | exiftool tag chain used for video dates |
+| `PHOTO_LEDGER` | *(empty → `<target>/library-ledger.tsv`)* | ledger file path (same as `--ledger`) |
+
+Example — group into 50 GB folders and name the output `organized/` instead of `muxed-photo/`:
+
+```sh
+PHOTO_GROUP_SIZE=50G PHOTO_OUTPUT_NAME=organized ./masterscript.sh /path/to/photos
+```
+
+**No config file, by design.** Every default lives once, in `lib.sh`. There is nothing to
+create, locate, or keep in sync — export a variable (or inline it before the command) and it
+takes effect immediately. If a config file is ever added later, it will be a plain
+`KEY=VALUE` file sourced by `lib.sh` reusing these same variable names — never YAML/TOML/JSON.
+
+**Intentionally fixed, not configurable:**
+- The grouped-folder name pattern `YYMMDD-YYMMDD-#.#GB` is a hard-coded constant
+  (`GROUP_FOLDER_GLOB` in `lib.sh`) — `group_files_size.sh` *creates* folders matching it and
+  `ungroup.sh` *globs* that exact pattern to reverse a grouping. A customizable pattern would
+  silently break `ungroup.sh`, so it isn't exposed via flag or env var.
+- The **order** of the EXIF tag chains is load-bearing application logic, not just a default:
+  exiftool applies `-DateTimeOriginal<TAG`-style assignments in sequence and the **last
+  matching tag wins**. You can override *which* tags are tried via `PHOTO_DATE_TAGS` /
+  `PHOTO_VIDEO_DATE_TAGS`, but the shipped order is guaranteed correct (least-accurate tag
+  first, most-accurate last) — if you customize the list, keep your most-trusted tag last.
+
+## Behavior changes in v1.1
+
+- **Broader renaming.** Every recognized media type (see `PHOTO_IMAGE_EXTS` /
+  `PHOTO_VIDEO_EXTS` above — screenshots/`.png`, `.tiff`, `.webp`, etc.) is now renamed, not
+  just grouped. Previously only `.jpg .jpeg .heic .dng .mov .mp4 .mts` were renamed, so
+  anything else could end up grouped into a batch without ever being renamed.
+- **Grouping moves only recognized media.** Stray non-media files (`.txt`, `.pdf`, ...) are
+  left in place rather than swept into a batch.
+- **Copy-by-default.** `--skip-mux` — and the new graceful mux skip below — now operate on a
+  **copy** in `<output-name>/` by default; originals are left untouched. Pass `--in-place` to
+  restore the pre-v1.1 behavior (rename/group the originals directly, no copy).
+- **Graceful mux skip.** A missing `motionphoto2` binary is now a warning, not a fatal error —
+  `masterscript.sh` skips muxing and continues with rename/group on a copy.
+- **Filesystem-date fallback for photos (and videos, as before).** A photo whose EXIF has no
+  usable date tag (common for some screenshots) now falls back to `FileModifyDate`, so it
+  still renames deterministically instead of being skipped. Videos already led with
+  `FileModifyDate` in their tag chain, so this fallback behavior is the same for both.
+- **New end-of-run summary + ledger.** Every real (non-dry-run) run prints a summary (date
+  range, image/video/motion-photo counts, total size, batch count) and appends a row to
+  `library-ledger.tsv` inside the target directory. Use `--ledger PATH` / `PHOTO_LEDGER` to
+  write it elsewhere, or `--no-ledger` to skip it for one run.
+- **Everything overridable.** Group size, output-folder name, recognized extensions, EXIF tag
+  chains, and the ledger path can all be overridden by `PHOTO_*` environment variables — see
+  [Configuration](#configuration) above. Version bumped to `1.1.0`.
+
 ## How each step works
 
 ### 1. Mux — `run_mux_motionphoto.sh`
@@ -71,13 +147,15 @@ Each step is also a standalone script (all support `-h/--help` and `--version`):
 - Pairs are matched by filename **and** by the embedded `ContentIdentifier` (`--exif-match`), then fused into a Motion Photo (video embedded inside the image).
 - Non-pairs are copied as-is (`--copy-unmuxed`); already-muxed files are detected and skipped.
 - **Originals are never modified** — output goes to `<dir>/muxed-photo/` (rename with `--output-name`).
+- If `motionphoto2` isn't installed, muxing is skipped gracefully with a warning (see [Behavior changes in v1.1](#behavior-changes-in-v11)) — `masterscript.sh` continues with rename/group on a copy of the originals.
 
 ### 2. Rename — `rename_media.sh`
 - Batch-renames photos and videos to `YYYYMMDD_HHMMSS` (a `%-c` counter disambiguates same-second collisions), in one exiftool pass per media type.
-- Supported: `.jpg .jpeg .heic .dng .mov .mp4 .mts`
+- Recognized extensions come from `lib.sh` (see [Configuration](#configuration)) — the default is broad, covering everything in a typical camera roll, not just the original `.jpg .jpeg .heic .dng .mov .mp4 .mts` set (screenshots/`.png` included).
 - exiftool applies tags in order and the **last matching tag wins**, so the most accurate tag is listed last:
-  - **Photos:** `DateTimeOriginal` › `CreateDate` › `XMP:CreateDate` › `DateTimeCreated` › `FileCreateDate`
-  - **Videos:** `QuickTime:CreateDate` › `MediaCreateDate` › `TrackCreateDate` › `FileCreateDate` › `FileModifyDate`
+  - **Photos:** `FileModifyDate` › `FileCreateDate` › `DateTimeCreated` › `XMP:CreateDate` › `CreateDate` › `DateTimeOriginal`
+  - **Videos:** `FileModifyDate` › `FileCreateDate` › `TrackCreateDate` › `MediaCreateDate` › `QuickTime:CreateDate`
+- A file with no usable EXIF date tag falls back to `FileModifyDate` (the filesystem date), so a screenshot with only a filesystem date still renames deterministically.
 - Renames **in place** in the directory it is given.
 
 ### 3. Group — `group_files_size.sh`
@@ -118,13 +196,16 @@ One folder per import means files from different days never collide, so no manua
 <input>/                          # originals, untouched (full pipeline)
 <input>/muxed-photo/
     workflow.log                  # consolidated run log
+    library-ledger.tsv            # per-import summary row, appended each real run
     YYMMDD-YYMMDD-##.#GB/         # grouped, ready to transfer
         20250426_161449.JPG
         20250426_161744.JPG       # a motion photo (video embedded)
         20260414_235413.MOV
 ```
 
-With `--skip-mux`, there is no `muxed-photo/` copy — rename/group happen in place in `<input>/` and originals are renamed/moved.
+With `--skip-mux` (or when `motionphoto2` isn't installed), rename/group operate on a **copy**
+in `<output-name>/` by default — originals stay untouched. Pass `--in-place` to rename/move
+the originals directly instead (no copy), as in versions before v1.1.
 
 ## Resume
 
@@ -146,16 +227,38 @@ shellcheck *.sh          # lint (brew install shellcheck)
 bats test                # test suite (brew install bats-core)
 ```
 
-GitHub Actions runs `shellcheck` and the `bats` suite on every push (see `.github/workflows/ci.yml`).
-
-> **Follow-up (deferred):** the CI workflow was added in `59fbd70` but its first run on GitHub hasn't been confirmed yet. Check the repo's **Actions** tab; if it's green, optionally add a status badge at the top of this README:
-> `![CI](https://github.com/leongyeehang/iphone-pixel-google-photo-import/actions/workflows/ci.yml/badge.svg)`
+GitHub Actions runs `shellcheck` and the `bats` suite on every push and pull request (see
+`.github/workflows/ci.yml`); the badge at the top of this README reflects the current status.
 
 ## License
 
 MIT — see [LICENSE](LICENSE). The bundled `MotionPhoto2-main/` tool is a separate MIT-licensed project by Petr Vyskocil (see its own `LICENSE`); this workflow calls the installed `motionphoto2` binary rather than that source.
 
 ## Changelog
+
+### 2026-07-23 (v1.1) — universal solution
+- **lib.sh (new):** single source of truth for the toolkit — `WORKFLOW_VERSION`, the
+  `PHOTO_*` overridable defaults (env idiom: flag → env → built-in default; no config file),
+  `is_media_file` / `is_image_file` / `is_video_file`, the shared `GROUP_FOLDER_GLOB`, and
+  portable helpers (`stat_size`, `epoch_from_filename_or_fs`, `dir_size_kb`, `parse_size`, ...)
+  that were previously duplicated or missing. Every script now sources it.
+- **rename_media.sh:** extensions and EXIF tag chains now come from `lib.sh` (broader default
+  extension set, e.g. `.png` screenshots, `.tiff`, `.webp`); the photo tag chain gains a
+  `FileModifyDate` fallback so a screenshot with only a filesystem date still renames.
+- **group_files_size.sh:** file selection switched from "exclude known non-media" to "include
+  only `is_media_file`" — closes the screenshot bug (files grouped but never renamed) and is
+  why stray non-media files are now left in place instead of swept into a batch.
+- **run_mux_motionphoto.sh:** a missing `motionphoto2` binary (or nothing to mux) is no longer
+  fatal — it warns and exits 0.
+- **masterscript.sh:** treats "no muxer / nothing muxed" as a graceful skip and continues;
+  when muxing doesn't run, rename/group now operate on a **copy** in `<output-name>/` by
+  default (originals untouched) — added `--in-place` to restore the old in-place behavior.
+  Fixed a resume-run disk-space double-count (an existing output copy is now subtracted from
+  the input-size estimate). Added an end-of-run summary and a `library-ledger.tsv` row inside
+  the target dir, with `--ledger PATH` / `--no-ledger` to control it.
+- **All scripts:** version consolidated to `1.1.0` in `lib.sh`.
+- Deepened the `bats` suite (env overrides, ledger, copy-vs-in-place, graceful mux skip, PNG
+  screenshot renaming, resume checkpoints, ...); added the CI status badge above.
 
 ### 2026-07-21 (v4) — generalized for reuse
 - **masterscript.sh:** added `--skip-mux`, `--skip-rename`, `--skip-group` (steps are now independently optional), `--size` (passed to grouping), `--output-name`, a whole-pipeline `--dry-run`, and `--version`. `--skip-mux` runs rename/group in place. Fixed an exit-code bug (in-place runs returned 1).
