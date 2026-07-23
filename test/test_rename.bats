@@ -20,12 +20,31 @@ teardown() {
   [ ! -e "$TMP/.workflow" ]
 }
 
-@test "masterscript --skip-mux --skip-group renames in place" {
+@test "masterscript --skip-mux --in-place --skip-group renames originals in place" {
   printf 'x' > "$TMP/IMG_0001.JPG"
-  run "$DIR/masterscript.sh" --skip-mux --skip-group "$TMP"
+  run "$DIR/masterscript.sh" --skip-mux --in-place --skip-group "$TMP"
   [ "$status" -eq 0 ]
   [ ! -f "$TMP/IMG_0001.JPG" ]
   run bash -c "ls '$TMP'/2*.JPG"
+  [ "$status" -eq 0 ]
+}
+
+@test "masterscript --skip-mux copies by default (originals kept)" {
+  printf 'x' > "$TMP/IMG_0001.JPG"
+  run "$DIR/masterscript.sh" --skip-mux --skip-group "$TMP"
+  [ "$status" -eq 0 ]
+  [ -f "$TMP/IMG_0001.JPG" ]
+  run bash -c "ls '$TMP'/muxed-photo/2*.JPG"
+  [ "$status" -eq 0 ]
+}
+
+@test "masterscript with no motionphoto2 skips muxing and still produces output" {
+  command -v motionphoto2 >/dev/null 2>&1 && skip "motionphoto2 is installed"
+  printf 'x' > "$TMP/IMG_0001.JPG"
+  run "$DIR/masterscript.sh" --skip-group "$TMP"
+  [ "$status" -eq 0 ]
+  [ -f "$TMP/IMG_0001.JPG" ]
+  run bash -c "ls '$TMP'/muxed-photo/2*.JPG"
   [ "$status" -eq 0 ]
 }
 
