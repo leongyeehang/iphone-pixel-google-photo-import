@@ -150,8 +150,12 @@ write_summary_and_ledger() {
 
     local motion_photos="-"
     if [[ "$SKIP_MUX" == false ]] && command -v exiftool &> /dev/null; then
+        # exiftool exits 2 when NO file matches the -if condition (a batch with zero Live
+        # Photos is valid). Under pipefail that would abort the script after the workflow
+        # already finished, skipping the ledger + cleanup. Neutralize its status; empty
+        # output still yields a 0 count.
         # shellcheck disable=SC2016  # single quotes are exiftool's own -if/-p syntax, not shell expansion
-        motion_photos=$(exiftool -q -q -if '$XMP-GCamera:MotionPhoto' -p '1' -r "$TARGET" 2>/dev/null | wc -l | tr -d ' ')
+        motion_photos=$( { exiftool -q -q -if '$XMP-GCamera:MotionPhoto' -p '1' -r "$TARGET" 2>/dev/null || true; } | wc -l | tr -d ' ')
     fi
 
     log "Summary: $date_from..$date_to | images=$images videos=$videos motion=$motion_photos files=$total size=${total_size_gb}GB batches=$batches"
@@ -187,7 +191,8 @@ fi
 input_size_gb=$(awk -v kb="$input_size_kb" 'BEGIN {printf "%.1f", kb / (1024*1024)}')
 free_space_kb=$(df -Pk "$INPUT_DIR" | awk 'NR==2 {print $4}')
 free_space_gb=$(awk -v kb="$free_space_kb" 'BEGIN {printf "%.1f", kb / (1024*1024)}')
-# A copy is made unless the no-mux path runs in place.
+# A copy is made unless the no-mux path runs in place. Note: --in-place has no effect on
+# the mux-present path (muxing always copies), so this IN_PLACE branch is a best-effort advisory.
 if [[ "$IN_PLACE" == true ]]; then
     required_gb="$input_size_gb"
 else
@@ -217,18 +222,27 @@ if [[ "$SKIP_MUX" == true ]]; then
         [[ "$DRY_RUN" == false ]] && log "Note: originals in $INPUT_DIR will be renamed/moved."
         TARGET="$INPUT_DIR"
     else
-        log "--- Step 1: Muxing skipped; copying media into $MUXED_DIR (originals kept) ---"
         if [[ "$DRY_RUN" == true ]]; then
+            log "--- Step 1: Muxing skipped; copying media into $MUXED_DIR (originals kept) ---"
             TARGET="$INPUT_DIR"
             log "DRY RUN: rename/group preview against the input files."
+        elif [[ -f "$CHECKPOINT_MUX" ]]; then
+            log "--- Step 1: Skipping copy (already completed) ---"
+            TARGET="$MUXED_DIR"
         else
+            log "--- Step 1: Muxing skipped; copying media into $MUXED_DIR (originals kept) ---"
             mkdir -p "$MUXED_DIR"
             copied=0
             while IFS= read -r -d '' f; do
                 is_media_file "$f" || continue
-                cp -p "$f" "$MUXED_DIR/" && copied=$((copied + 1))
+                if cp -p "$f" "$MUXED_DIR/"; then
+                    copied=$((copied + 1))
+                else
+                    log "Warning: failed to copy '$f' into $MUXED_DIR/"
+                fi
             done < <(find "$INPUT_DIR" -maxdepth 1 -type f ! -name ".*" -print0)
             log "Copied $copied media file(s) into $MUXED_DIR."
+            touch "$CHECKPOINT_MUX"
             TARGET="$MUXED_DIR"
         fi
     fi

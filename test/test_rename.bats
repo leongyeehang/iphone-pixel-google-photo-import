@@ -98,3 +98,22 @@ teardown() {
   [ "$status" -eq 0 ]
   [ ! -e "$TMP/muxed-photo" ]
 }
+
+@test "masterscript --skip-mux skips the copy when the checkpoint exists (resume)" {
+  printf 'x' > "$TMP/IMG_0001.JPG"
+  mkdir -p "$TMP/muxed-photo"
+  cp -p "$TMP/IMG_0001.JPG" "$TMP/muxed-photo/20250101_120000.JPG"
+  mkdir -p "$TMP/.workflow"; touch "$TMP/.workflow/.mux_done" "$TMP/.workflow/.rename_done"
+  run "$DIR/masterscript.sh" --skip-mux "$TMP"
+  [ "$status" -eq 0 ]
+  run bash -c "find '$TMP/muxed-photo' -name IMG_0001.JPG | wc -l | tr -d ' '"
+  [ "$output" = "0" ]
+}
+
+@test "masterscript with motionphoto2 present and no Live Photos still writes the ledger (exit 0)" {
+  command -v motionphoto2 >/dev/null 2>&1 || skip "motionphoto2 not installed"
+  printf 'x' > "$TMP/IMG_0001.JPG"
+  run "$DIR/masterscript.sh" --skip-group "$TMP"
+  [ "$status" -eq 0 ]
+  [ -f "$TMP/muxed-photo/library-ledger.tsv" ]
+}
