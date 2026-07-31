@@ -2,6 +2,10 @@
 
 ![CI](https://github.com/leongyeehang/iphone-pixel-google-photo-import/actions/workflows/ci.yml/badge.svg)
 
+> ### ▶ Coming back after a break? Read **[docs/HANDOFF.md](docs/HANDOFF.md)** first.
+> It holds the **open TODO**, the current state of the library, and what has already been
+> tried and ruled out — so you don't redo work or re-investigate settled questions.
+
 Batch-organize a folder of photos and videos in up to three steps:
 
 1. **(optional) Mux** — fuse iPhone **Live Photos** (`IMG_1234.JPG` + `IMG_1234.MOV`) into a single Google **Motion Photo**, so the motion survives on Android / Google Photos.
@@ -14,6 +18,7 @@ Every step is optional, so the tool is useful whether you're an iPhone user prep
 > Capture → this script → Pixel 1 → Google Photos — see:
 > - **[docs/CHECKLIST.md](docs/CHECKLIST.md)** — the one-page tick-list you follow while doing an import.
 > - **[docs/WORKFLOW.md](docs/WORKFLOW.md)** — the reference: why each step exists, what to verify, and how to recover when something goes wrong.
+> - **[docs/HANDOFF.md](docs/HANDOFF.md)** — where work was left off, the open TODO, and what has already been ruled out.
 
 > **Origin:** originally built for an iPhone → Google Pixel 1 workflow (Pixel 1 gets free unlimited original-quality Google Photos backup). It has been generalized so anyone can use it — the iPhone→Pixel flow is just one example below.
 

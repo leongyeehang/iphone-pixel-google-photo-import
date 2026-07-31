@@ -5,24 +5,55 @@ disk; nothing is lost if you come back in six months.
 
 ---
 
-## TL;DR — what to do next
+## TODO — do these in order
 
-**One open decision, and it needs your eyes, not more analysis.**
+### ☐ 1. Check the Pixel's backup quality (30 seconds — do this first)
 
-15 test Motion Photos are sitting in `/Volumes/Aca_WD/media/Import from Image Capture/motion-ab-test/upload/`.
-Push them to the Pixel, back them up, and look at them next to the iPhone originals. Then
-pick a variant (or decide none is worth it) and record the verdict in
-[the decision section below](#the-open-decision).
+> Google Photos → avatar → **Photos settings** → **Backup** → **Backup quality**
+
+It must read **Original quality**. If it says **Storage saver**, Google is recompressing
+everything on upload — stills to 16 MP, video to 1080p — which would explain poor quality on
+its own and would mean **step 2 is measuring the wrong thing.** Fix this before going further.
+
+### ☐ 2. Compare the 15 test Motion Photos on the Pixel
+
+The deciding question is perceptual. No further analysis can settle it — it needs your eyes.
 
 ```sh
 adb push "/Volumes/Aca_WD/media/Import from Image Capture/motion-ab-test/upload" /sdcard/DCIM/
 adb reboot        # forces the media scan
 # then: Google Photos -> Photos settings -> Backup -> Back up device folders -> enable "upload"
-#       and confirm Backup quality = Original quality
 ```
 
 Or drag the folder into `Internal Storage/DCIM/` with OpenMTP, which avoids the media-scan
 problem entirely.
+
+Compare each variant against the same Live Photo on the iPhone, then fill in
+[the verdict box](#record-your-verdict-here) below.
+
+### ☐ 3. Act on the verdict
+
+Either adopt the winning variant (opt-in flag on `run_mux_motionphoto.sh`) or delete
+`tools/motion_ab_test.sh` and `motion-ab-test/` and mark the limitation accepted. Details in
+[The open decision](#the-open-decision).
+
+### ☐ 4. Push to origin — nothing is pushed yet
+
+`main` is ~20 commits ahead of `origin/main`: `git push origin main`
+
+### ☐ 5. Run the 49 GB backlog through the pipeline (independent of the above)
+
+It has never been processed. See [CHECKLIST.md](CHECKLIST.md); dry-run first.
+
+---
+
+### What is NOT fixable — don't spend time on it
+
+The **motion looking soft next to the still** is inherent and cannot be fixed. A Live Photo's
+video is **1920×1440 (2.8 MP)**; the still is **5712×4284 (24.5 MP)**. That is all the iPhone
+ever recorded. iOS hides the gap by crossfading on a small screen; Google Photos shows the
+video as it is. Only the *wobble* and *edge distortion* are addressable — that is what the
+variants in step 2 target.
 
 ---
 
