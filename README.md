@@ -10,6 +10,11 @@ Batch-organize a folder of photos and videos in up to three steps:
 
 Every step is optional, so the tool is useful whether you're an iPhone user preparing a Google-Photos backup **or** anyone who just wants their photos renamed by date and/or split into folders.
 
+> **This README documents the *tool*.** For the full end-to-end procedure — iPhone → Image
+> Capture → this script → Pixel 1 → Google Photos — see:
+> - **[docs/CHECKLIST.md](docs/CHECKLIST.md)** — the one-page tick-list you follow while doing an import.
+> - **[docs/WORKFLOW.md](docs/WORKFLOW.md)** — the reference: why each step exists, what to verify, and how to recover when something goes wrong.
+
 > **Origin:** originally built for an iPhone → Google Pixel 1 workflow (Pixel 1 gets free unlimited original-quality Google Photos backup). It has been generalized so anyone can use it — the iPhone→Pixel flow is just one example below.
 
 ## Requirements
@@ -90,7 +95,7 @@ of them per run via an environment variable, without touching a file:
 | `PHOTO_IMAGE_EXTS` | `jpg jpeg heic heif dng png tif tiff gif bmp webp` | recognized image extensions (rename & group) |
 | `PHOTO_VIDEO_EXTS` | `mov mp4 m4v avi 3gp 3g2 mts m2ts mkv wmv` | recognized video extensions (rename & group) |
 | `PHOTO_DATE_TAGS` | `FileModifyDate FileCreateDate DateTimeCreated XMP:CreateDate CreateDate DateTimeOriginal` | exiftool tag chain used for photo dates |
-| `PHOTO_VIDEO_DATE_TAGS` | `FileModifyDate FileCreateDate TrackCreateDate MediaCreateDate QuickTime:CreateDate` | exiftool tag chain used for video dates |
+| `PHOTO_VIDEO_DATE_TAGS` | `FileModifyDate FileCreateDate TrackCreateDate MediaCreateDate QuickTime:CreateDate Keys:CreationDate` | exiftool tag chain used for video dates |
 | `PHOTO_LEDGER` | *(empty → `<target>/library-ledger.tsv`)* | ledger file path (same as `--ledger`) |
 
 Example — group into 50 GB folders and name the output `organized/` instead of `muxed-photo/`:
@@ -144,7 +149,7 @@ takes effect immediately. If a config file is ever added later, it will be a pla
 
 ### 1. Mux — `run_mux_motionphoto.sh`
 - Runs **first** so original iPhone filenames (`IMG_xxxx`) are intact for Live-Photo pairing.
-- Pairs are matched by filename **and** by the embedded `ContentIdentifier` (`--exif-match`), then fused into a Motion Photo (video embedded inside the image).
+- Pairs are matched by the embedded `ContentIdentifier` (`--exif-match`), not by filename, then fused into a Motion Photo (video embedded inside the image). Without that flag `motionphoto2` falls back to base-name matching.
 - Non-pairs are copied as-is (`--copy-unmuxed`); already-muxed files are detected and skipped.
 - **Originals are never modified** — output goes to `<dir>/muxed-photo/` (rename with `--output-name`).
 - If `motionphoto2` isn't installed, muxing is skipped gracefully with a warning (see [Behavior changes in v1.1](#behavior-changes-in-v11)) — `masterscript.sh` continues with rename/group on a copy of the originals.
@@ -154,7 +159,8 @@ takes effect immediately. If a config file is ever added later, it will be a pla
 - Recognized extensions come from `lib.sh` (see [Configuration](#configuration)) — the default is broad, covering everything in a typical camera roll, not just the original `.jpg .jpeg .heic .dng .mov .mp4 .mts` set (screenshots/`.png` included).
 - exiftool applies tags in order and the **last matching tag wins**, so the most accurate tag is listed last:
   - **Photos:** `FileModifyDate` › `FileCreateDate` › `DateTimeCreated` › `XMP:CreateDate` › `CreateDate` › `DateTimeOriginal`
-  - **Videos:** `FileModifyDate` › `FileCreateDate` › `TrackCreateDate` › `MediaCreateDate` › `QuickTime:CreateDate`
+  - **Videos:** `FileModifyDate` › `FileCreateDate` › `TrackCreateDate` › `MediaCreateDate` › `QuickTime:CreateDate` › `Keys:CreationDate`
+- The video chain ends on `Keys:CreationDate` because the `QuickTime:*` tags store UTC with no offset, while stills are named from local-time `DateTimeOriginal`. Ending on a UTC tag named every video 8 hours away from its still (in UTC+8), skewing batch date ranges and pushing early-morning clips onto the previous day.
 - A file with no usable EXIF date tag falls back to `FileModifyDate` (the filesystem date), so a screenshot with only a filesystem date still renames deterministically.
 - Renames **in place** in the directory it is given.
 
@@ -164,7 +170,9 @@ takes effect immediately. If a config file is ever added later, it will be a pla
 - A single file larger than the limit forms its own over-limit folder (with a warning).
 
 ### Why mux before rename?
-A Live Photo is an image + a companion `.MOV` matched by name. If you rename **first**, the photo and video are renamed in separate passes by slightly different timestamps and no longer share a base name — the pair breaks and the motion is lost. Muxing first collapses each pair into a single file, so the later rename can't split anything.
+Because it removes a single point of failure. With `--exif-match` (which this toolkit always passes), pairing is done by `ContentIdentifier` and filenames don't matter — so renaming first would not, by itself, break anything. But *without* that flag `motionphoto2` matches by base name, and after renaming a pair looks like `20260415_194306.HEIC` (photo, local time) next to `20260415_114306.MOV` (video, UTC): 8 hours apart, no pairs found, every Live Photo silently copied unmuxed. Muxing first keeps both matching paths viable and collapses each pair into a single file, so the later rename can't split anything.
+
+See [docs/WORKFLOW.md](docs/WORKFLOW.md#7-quirks-specific-to-this-library) for why muxed Motion Photos still don't move quite like Live Photos in Google Photos — it's a format limitation, not a muxing fault.
 
 ## Recommended workflow (best practice)
 
@@ -235,6 +243,21 @@ GitHub Actions runs `shellcheck` and the `bats` suite on every push and pull req
 MIT — see [LICENSE](LICENSE). The bundled `MotionPhoto2-main/` tool is a separate MIT-licensed project by Petr Vyskocil (see its own `LICENSE`); this workflow calls the installed `motionphoto2` binary rather than that source.
 
 ## Changelog
+
+### Unreleased
+- **lib.sh:** appended `Keys:CreationDate` to `PHOTO_VIDEO_DATE_TAGS`. The chain previously
+  ended on `QuickTime:CreateDate`, which Apple stores in **UTC with no offset**, so every
+  video was named 8 hours away from its still in UTC+8 — skewing batch date ranges and
+  pushing clips shot between 00:00 and 08:00 onto the previous day. It also meant a renamed
+  Live Photo pair no longer shared a base name, so `motionphoto2`'s filename-matching
+  fallback would have found zero pairs had `--exif-match` ever been dropped. Videos without
+  the tag still fall back to the UTC tags.
+- **docs:** added [docs/WORKFLOW.md](docs/WORKFLOW.md) (end-to-end runbook with verification
+  and recovery) and [docs/CHECKLIST.md](docs/CHECKLIST.md) (one-page tick-list). Corrected the
+  "why mux before rename" explanation — pairing is by `ContentIdentifier` under `--exif-match`,
+  not by filename. Documented why muxed Motion Photos don't move like Live Photos in Google
+  Photos (a format capability gap, not a muxing fault).
+- **tests:** added a local-time-vs-UTC rename regression test and a tag-chain ordering contract test.
 
 ### 2026-07-23 (v1.1) — universal solution
 - **lib.sh (new):** single source of truth for the toolkit — `WORKFLOW_VERSION`, the
