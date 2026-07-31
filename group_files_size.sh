@@ -1,82 +1,49 @@
 #!/usr/bin/env bash
-
-# group_files_size.sh: Group files into size-limited folders named by date range
+# group_files_size.sh: Group media into size-limited folders named by date range.
 # Usage: ./group_files_size.sh [--dry-run] [--size SIZE] [input_directory]
-# Dates are parsed from renamed filenames (YYYYMMDD_HHMMSS.ext) first,
-# falling back to filesystem creation date.
 
 set -euo pipefail
 
-VERSION="1.0.0"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib.sh
+. "$SCRIPT_DIR/lib.sh" || { echo "Error: lib.sh not found next to $0" >&2; exit 1; }
 
 usage() {
     cat <<'EOF'
 Usage: group_files_size.sh [--dry-run] [--size SIZE] [input_directory]
 
-Group files into size-limited folders named by date range (YYMMDD-YYMMDD-#.#GB). Dates
-are parsed from renamed filenames (YYYYMMDD_HHMMSS) first, falling back to filesystem
-creation date. Runs on the current directory if no input directory is given.
+Group media files into size-limited folders named by date range (YYMMDD-YYMMDD-#.#GB).
+Dates are parsed from renamed filenames (YYYYMMDD_HHMMSS) first, falling back to the
+filesystem creation date. Non-media files are left in place. Runs on the current
+directory if none is given.
 
 Options:
-  --size SIZE   Target folder size (default 15G). Accepts K/M/G suffixes, e.g. 50G, 500M.
-  --dry-run     Preview the folders that would be created; make no changes.
+  --size SIZE   Target folder size (default 15G; or set PHOTO_GROUP_SIZE). K/M/G suffixes.
+  --dry-run     Preview folders that would be created; make no changes.
   -h, --help    Show this help and exit.
       --version Print version and exit.
 EOF
 }
 
-# parse_size: convert a human size (15G, 500M, 2K, 1.5G, or plain bytes) to an integer
-# number of bytes on stdout. Returns non-zero on invalid input.
-parse_size() {
-    local input="$1"
-    if [[ "$input" =~ ^([0-9]+(\.[0-9]+)?)([KkMmGg]?)[Bb]?$ ]]; then
-        local num="${BASH_REMATCH[1]}" unit="${BASH_REMATCH[3]}" mult=1
-        case "$unit" in
-            K|k) mult=1024 ;;
-            M|m) mult=$((1024 * 1024)) ;;
-            G|g) mult=$((1024 * 1024 * 1024)) ;;
-        esac
-        awk -v n="$num" -v m="$mult" 'BEGIN { printf "%d", n * m }'
-        return 0
-    fi
-    return 1
-}
-
-# Defaults
 DRY_RUN=false
 INPUT_DIR=""
-SIZE_INPUT="15G"
+SIZE_INPUT="$PHOTO_GROUP_SIZE"
 
-# Parse arguments
 while [[ "$#" -gt 0 ]]; do
   case "$1" in
-    --dry-run)
-      DRY_RUN=true
-      shift
-      ;;
+    --dry-run) DRY_RUN=true; shift ;;
     --size)
       SIZE_INPUT="${2:-}"
       [[ -z "$SIZE_INPUT" ]] && { echo "Error: --size requires a value" >&2; exit 1; }
-      shift 2
-      ;;
-    -h|--help)
-      usage
-      exit 0
-      ;;
-    --version)
-      echo "group_files_size.sh $VERSION"
-      exit 0
-      ;;
-    *)
-      INPUT_DIR="$1"
-      shift
-      ;;
+      shift 2 ;;
+    -h|--help) usage; exit 0 ;;
+    --version) echo "group_files_size.sh $WORKFLOW_VERSION"; exit 0 ;;
+    *) INPUT_DIR="$1"; shift ;;
   esac
 done
 
 INPUT_DIR="${INPUT_DIR:-.}"
 
-# Resolve the group size limit (bytes)
 if ! GROUP_SIZE_LIMIT=$(parse_size "$SIZE_INPUT"); then
     echo "Error: invalid --size '$SIZE_INPUT' (use e.g. 15G, 500M, 2K, or a byte count)." >&2
     exit 1
@@ -87,7 +54,6 @@ if (( GROUP_SIZE_LIMIT <= 0 )); then
 fi
 limit_gb=$(awk -v b="$GROUP_SIZE_LIMIT" 'BEGIN { printf "%.1f", b / (1024^3) }')
 
-# Check if the input directory exists
 if [[ ! -d "$INPUT_DIR" ]]; then
     echo "Error: Directory '$INPUT_DIR' not found." >&2
     exit 1
@@ -95,61 +61,22 @@ fi
 
 cd "$INPUT_DIR" || exit 1
 
-# Temp file cleanup on exit
 files_list=$(mktemp) || exit 1
 trap 'rm -f "$files_list"' EXIT
 
-# get_file_epoch: Extract epoch from filename (YYYYMMDD_HHMMSS pattern) or fall back to filesystem date
-# Usage: get_file_epoch <filepath>
-get_file_epoch() {
-    local filepath="$1"
-    local basename
-    basename=$(basename "$filepath")
-
-    # Try to parse YYYYMMDD_HHMMSS from the filename
-    if [[ "$basename" =~ ^([0-9]{4})([0-9]{2})([0-9]{2})_([0-9]{2})([0-9]{2})([0-9]{2}) ]]; then
-        local year="${BASH_REMATCH[1]}"
-        local month="${BASH_REMATCH[2]}"
-        local day="${BASH_REMATCH[3]}"
-        local hour="${BASH_REMATCH[4]}"
-        local min="${BASH_REMATCH[5]}"
-        local sec="${BASH_REMATCH[6]}"
-        if [[ "$OSTYPE" == "darwin"* ]]; then
-            date -j -f "%Y%m%d%H%M%S" "${year}${month}${day}${hour}${min}${sec}" +"%s" 2>/dev/null && return
-        else
-            date -d "${year}-${month}-${day} ${hour}:${min}:${sec}" +"%s" 2>/dev/null && return
-        fi
-    fi
-
-    # Fallback: filesystem creation date
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        stat -f "%B" "$filepath"
-    else
-        local ctime
-        ctime=$(stat -c "%W" "$filepath")
-        if [[ "$ctime" == "0" ]]; then
-            stat -c "%Y" "$filepath"
-        else
-            echo "$ctime"
-        fi
-    fi
-}
-
-# Build sorted file list by date (oldest first), exclude scripts and logs
-# Use tab as delimiter to handle filenames with spaces
+# Build a date-sorted list (oldest first) of MEDIA files only.
 while IFS= read -r -d '' filepath; do
-    filepath="${filepath#./}"  # Strip leading ./
-    epoch=$(get_file_epoch "$filepath")
+    filepath="${filepath#./}"
+    is_media_file "$filepath" || continue
+    epoch=$(epoch_from_filename_or_fs "$filepath")
     printf '%s\t%s\n' "$epoch" "$filepath"
-done < <(find . -maxdepth 1 -type f ! -name "*.sh" ! -name "*.py" ! -name "*.log" ! -name ".*" -print0) | sort -n | cut -f2- > "$files_list"
+done < <(find . -maxdepth 1 -type f ! -name ".*" -print0) | sort -n | cut -f2- > "$files_list"
 
-# Check if any files were found
 if [[ ! -s "$files_list" ]]; then
-    echo "No files found to group in '$INPUT_DIR'."
+    echo "No media files found to group in '$INPUT_DIR'."
     exit 0
 fi
 
-# Grouping state
 current_group_size=0
 current_group_files=()
 group_min_epoch=""
@@ -158,19 +85,20 @@ COUNTER=0
 groups_created=0
 
 process_group() {
-    # Convert epochs to dates (YYMMDD format)
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        min_date=$(date -j -f "%s" "$group_min_epoch" +"%y%m%d")
-        max_date=$(date -j -f "%s" "$group_max_epoch" +"%y%m%d")
-    else
-        min_date=$(date -d "@$group_min_epoch" +"%y%m%d")
-        max_date=$(date -d "@$group_max_epoch" +"%y%m%d")
-    fi
-
-    # Calculate total size in GB with 1 decimal place
+    local min_date max_date total_size_gb folder_name file
+    min_date=$(epoch_to_yymmdd "$group_min_epoch")
+    max_date=$(epoch_to_yymmdd "$group_max_epoch")
     total_size_gb=$(awk -v bytes="$current_group_size" 'BEGIN {printf "%.1f", bytes / (1024^3)}')
-
     folder_name="${min_date}-${max_date}-${total_size_gb}GB"
+
+    # Enforce the shared naming contract: a folder we create must match the
+    # GROUP_FOLDER_GLOB that ungroup.sh uses to find it. Loud failure beats
+    # silent drift between the two scripts.
+    # shellcheck disable=SC2053  # RHS is an intentional glob pattern, not a literal
+    if [[ "$folder_name" != $GROUP_FOLDER_GLOB ]]; then
+        echo "Internal error: folder name '$folder_name' does not match GROUP_FOLDER_GLOB." >&2
+        exit 1
+    fi
 
     if [[ "$DRY_RUN" == true ]]; then
         echo "[DRY RUN] Would create folder: $folder_name (${#current_group_files[@]} files, ${total_size_gb}GB)"
@@ -192,25 +120,15 @@ process_group() {
 
 while IFS= read -r FILE; do
     [[ -z "$FILE" ]] && continue
+    file_size=$(stat_size "$FILE")
 
-    # Get file size
-    if [[ "$OSTYPE" == "darwin"* ]]; then
-        file_size=$(stat -f "%z" "$FILE")
-    else
-        file_size=$(stat -c "%s" "$FILE")
-    fi
-
-    # A single file larger than the limit can't be split — it forms its own over-limit
-    # group. Warn so the oversized folder isn't a surprise.
     if (( file_size > GROUP_SIZE_LIMIT )); then
         size_gb=$(awk -v b="$file_size" 'BEGIN {printf "%.1f", b / (1024^3)}')
         echo "Warning: '$FILE' (${size_gb}GB) exceeds the ${limit_gb}GB group limit; it will form its own over-limit folder." >&2
     fi
 
-    # Get file epoch using the fallback chain
-    file_epoch=$(get_file_epoch "$FILE")
+    file_epoch=$(epoch_from_filename_or_fs "$FILE")
 
-    # Start new group if adding this file would exceed the limit
     if [[ -n "$group_min_epoch" ]] && (( current_group_size + file_size > GROUP_SIZE_LIMIT )); then
         process_group
         current_group_size=0
@@ -219,23 +137,14 @@ while IFS= read -r FILE; do
         group_max_epoch=""
     fi
 
-    # Update group metadata
     current_group_files+=("$FILE")
     current_group_size=$((current_group_size + file_size))
 
-    # Update date boundaries
-    if [[ -z "$group_min_epoch" ]] || (( file_epoch < group_min_epoch )); then
-        group_min_epoch=$file_epoch
-    fi
-    if [[ -z "$group_max_epoch" ]] || (( file_epoch > group_max_epoch )); then
-        group_max_epoch=$file_epoch
-    fi
+    if [[ -z "$group_min_epoch" ]] || (( file_epoch < group_min_epoch )); then group_min_epoch=$file_epoch; fi
+    if [[ -z "$group_max_epoch" ]] || (( file_epoch > group_max_epoch )); then group_max_epoch=$file_epoch; fi
 done < "$files_list"
 
-# Process remaining files
-if [[ ${#current_group_files[@]} -gt 0 ]]; then
-    process_group
-fi
+if [[ ${#current_group_files[@]} -gt 0 ]]; then process_group; fi
 
 if [[ "$DRY_RUN" == true ]]; then
     echo "Dry run complete. Would group $COUNTER files into $groups_created folder(s)."
