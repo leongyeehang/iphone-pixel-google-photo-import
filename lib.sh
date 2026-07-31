@@ -15,7 +15,12 @@ WORKFLOW_VERSION="1.1.0"
 : "${PHOTO_VIDEO_EXTS:=mov mp4 m4v avi 3gp 3g2 mts m2ts mkv wmv}"
 # EXIF date-tag fallback chains, lowest-priority FIRST (exiftool: last match wins).
 : "${PHOTO_DATE_TAGS:=FileModifyDate FileCreateDate DateTimeCreated XMP:CreateDate CreateDate DateTimeOriginal}"
-: "${PHOTO_VIDEO_DATE_TAGS:=FileModifyDate FileCreateDate TrackCreateDate MediaCreateDate QuickTime:CreateDate}"
+# Keys:CreationDate is last on purpose: QuickTime:CreateDate & friends are stored in UTC with
+# no offset, so on their own they name videos in UTC while stills are named in local time
+# (8 h apart in SGT). Keys:CreationDate carries the local time plus its offset, which realigns
+# videos with their stills — and keeps a Live Photo pair sharing a base name, so muxing still
+# works if --exif-match is ever dropped. Videos lacking it fall back to the UTC tags.
+: "${PHOTO_VIDEO_DATE_TAGS:=FileModifyDate FileCreateDate TrackCreateDate MediaCreateDate QuickTime:CreateDate Keys:CreationDate}"
 # Empty => masterscript picks a target-relative default.
 : "${PHOTO_LEDGER:=}"
 

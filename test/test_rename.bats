@@ -67,6 +67,21 @@ teardown() {
   [ "$status" -eq 0 ]
 }
 
+@test "a video is renamed in local time, not UTC, so it aligns with its still" {
+  command -v ffmpeg >/dev/null 2>&1 || skip "ffmpeg not installed"
+  ffmpeg -v error -f lavfi -i testsrc=d=1:s=64x64 -c:v libx264 -t 0.5 \
+    -pix_fmt yuv420p "$TMP/clip.mov" -y
+  # Same instant, two tags: QuickTime:CreateDate is UTC, Keys:CreationDate is local +08:00.
+  exiftool -overwrite_original -q \
+    -QuickTime:CreateDate="2026:04:15 11:43:06" \
+    -Keys:CreationDate="2026:04:15 19:43:06+08:00" "$TMP/clip.mov"
+
+  run "$DIR/rename_media.sh" "$TMP"
+  [ "$status" -eq 0 ]
+  [ -f "$TMP/20260415_194306.mov" ]     # local time
+  [ ! -f "$TMP/20260415_114306.mov" ]   # not UTC
+}
+
 @test "masterscript skips an already-completed rename checkpoint" {
   printf 'x' > "$TMP/IMG_0001.JPG"
   mkdir -p "$TMP/.workflow"; touch "$TMP/.workflow/.rename_done"

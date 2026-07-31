@@ -43,6 +43,17 @@ setup() {
   run parse_size "bogus";[ "$status" -ne 0 ]
 }
 
+@test "date-tag chains end with the most-trusted tag (exiftool: last match wins)" {
+  # The ORDER is application logic, not a cosmetic default. The last entry decides the
+  # filename, so these two assertions pin the contract the whole rename step rests on.
+  last_photo="${PHOTO_DATE_TAGS##* }"
+  last_video="${PHOTO_VIDEO_DATE_TAGS##* }"
+  [ "$last_photo" = "DateTimeOriginal" ]
+  # Keys:CreationDate carries local time + offset; the QuickTime:* tags are UTC-only, so
+  # ending on them would name videos 8 h away from their stills.
+  [ "$last_video" = "Keys:CreationDate" ]
+}
+
 @test "epoch_from_filename_or_fs parses YYYYMMDD_HHMMSS" {
   run epoch_from_filename_or_fs "20250101_120000.JPG"
   [ "$status" -eq 0 ]
