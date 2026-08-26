@@ -806,15 +806,45 @@ that is applied *at playback time*, and Google's Motion Photo format has nowhere
 | Still marker part-way in (e.g. 1.17 s of a 1.64 s clip) | ends playback on the still | plays from t=0 → the framing travels |
 
 Apple's stabilisation is **computed on the fly, not baked into the pixels.** Google's own
-Pixel motion photos look clean because they were stabilised *in-camera*. Nothing in this
-pipeline can close that gap without re-encoding every clip — which is lossy, slow, and would
-apply generic stabilisation that doesn't match Apple's transform.
+Pixel motion photos look clean because they were stabilised *in-camera*. Closing that gap
+would mean re-encoding every clip — lossy, slow, and applying generic stabilisation that
+doesn't match Apple's transform. That was tried anyway; see the verdict below.
 
 A second, smaller factor: the still is **5712×4284 (24.5 MP)** while the video is
 **1920×1440 (2.8 MP)** — 9× fewer pixels. The step down from crisp still to soft motion is
 inherent to Live Photos and is very visible on a large screen.
 
-**Current status: accepted limitation.** The still — the artifact that actually matters — is
+### The baked-in fix was tested, and rejected — 2026-08-26
+
+Re-encoding was not just reasoned about, it was built and compared on the device. A candidate
+was made from `IMG_9305` with both correction steps baked into the pixels: crop to the clean
+aperture (1744×1308) and `vidstab` stabilisation — keeping the original audio, the `hvc1`
+tag, the HDR gain map, and using a **length-preserving byte patch** for the timestamp so the
+XMP stayed structurally identical to a known-good mux.
+
+Both were pushed to the Pixel, backed up at Original quality, and viewed in Google Photos
+next to the iPhone Live Photo:
+
+| | File | Verdict |
+|---|---|---|
+| **A** | plain pipeline mux (`muxed-photo/IMG_9305.HEIC`) | **better of the two** |
+| **B** | crop + `vidstab` (`FIXED/IMG_9305_FIXED2.HEIC`) | worse |
+
+**Neither matched the iPhone, and the baked-in fix made playback worse — so it is not going
+into the pipeline.** Generic stabilisation fights motion that Apple's transform would have
+corrected differently, and the crop re-encodes an already-soft 2.8 MP video. The A/B harness
+(`tools/motion_ab_test.sh`) has been removed; don't rebuild this experiment.
+
+Two related things were proven along the way and are worth keeping:
+
+- **Google Photos stores Pixel sideloads byte-for-byte.** The muxed file downloaded back out
+  of Google Photos had an MD5 identical to the file pushed in. Original quality is confirmed,
+  and every remaining playback complaint is **player-side**.
+- **Never rewrite a muxed file's XMP with `exiftool`.** Its serialisation shifts offsets and
+  Google Photos then can't parse the file at all — the first fix candidate was unviewable for
+  exactly this reason. Byte patches only, same length.
+
+**Status: accepted limitation.** The still — the artifact that actually matters — is
 byte-perfect at full resolution.
 
 ### Mux runs before rename — and why the order still matters
