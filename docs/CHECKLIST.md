@@ -22,7 +22,8 @@ IMPORT="$LIB/library/$(date +%Y-%m-%d)"
       ⚠️ `Optimize iPhone Storage` means the originals aren't on the phone to import.
 - [ ] Pixel → Google Photos → Photos settings → Backup → **Backup quality = Original quality**
       ⚠️ `Storage saver` defeats the entire purpose of using a Pixel 1.
-- [ ] Mac → `exiftool -ver` · `command -v motionphoto2` · `command -v adb` all answer
+- [ ] Mac → `exiftool -ver` · `command -v motionphoto2` both answer
+      (`adb` is optional throughout — OpenMTP does every transfer step without it)
 - [ ] Mac → `brew install --cask openmtp` (Android File Transfer is dead on macOS 26)
 
 ---
@@ -73,9 +74,10 @@ exiftool -s3 -FileType -ImageSize "$(ls *.HEIC | head -1)"
 ## 3 · Process
 
 - [ ] Check the Pixel's free space → batch size **≤ 50%** of it (`10G` on a 32 GB Pixel 1)
+      (no `adb`? Settings → Storage on the phone, or read it in OpenMTP)
 
 ```sh
-adb shell df -h /sdcard
+adb shell df -h /sdcard   # optional; the phone's Settings → Storage says the same
 "$SCRIPT/masterscript.sh" --dry-run "$IMPORT"     # preview — changes nothing
 "$SCRIPT/masterscript.sh" --size 10G "$IMPORT"    # commit
 ```
@@ -132,20 +134,29 @@ adb reboot     # forces the media scan; otherwise Google Photos may not see the 
 - [ ] Wait for **"Backup complete"** (a 10 GB batch can take overnight)
 - [ ] Verify on **photos.google.com** from the Mac: date range matches, and a
       Motion Photo actually **animates**
-- [ ] Record it in `$LIB/upload-log.md`:
+- [ ] Record it in `$LIB/upload-log.md` — **before** you free up space below
+
+```sh
+"$SCRIPT/tools/log_upload.sh" "$RESULTS/260701-260714-9.8GB" "motion verified"
+```
+
+The batch name, import folder and file count are read from the folder; dates default to
+today (`--pushed` / `--confirmed` to override). The note is optional. Or type the row
+yourself — the script only saves the typing, it confirms nothing:
 
 ```markdown
 | Batch | Import | Files | Pushed | Backup confirmed | Notes |
 |---|---|---|---|---|---|
-| 260701-260714-9.8GB | 2026-07-28 | 3,412 | 2026-07-28 | 2026-07-29 | motion verified |
+| 260701-260714-9.8GB | 2026July28 | 3412 | 2026-07-28 | 2026-07-29 | motion verified |
 ```
 
 ---
 
 ## 7 · Close the loop
 
-- [ ] Google Photos → **Free up space** (or `adb shell rm -rf /sdcard/DCIM/<BATCH>`)
+- [ ] Google Photos → **Free up space** (or delete the folder in OpenMTP)
       ⚠️ If it frees fewer items than the batch held, some files never uploaded → back to 6
+      This is the strongest check you have: it only removes what is genuinely backed up.
 - [ ] Repeat 5–7 for each remaining batch
 - [ ] All batches confirmed → `rm -rf "$IMPORT/muxed-photo"` (reproducible, disposable)
 - [ ] ⚠️ **Keep the originals.** They are your only non-Google copy.

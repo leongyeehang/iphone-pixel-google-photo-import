@@ -16,7 +16,7 @@ jobs:
           sudo apt-get install -y shellcheck bats libimage-exiftool-perl
 
       - name: ShellCheck
-        run: shellcheck *.sh
+        run: shellcheck -x *.sh tools/*.sh
 
       - name: Run tests
         run: bats test

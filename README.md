@@ -80,6 +80,37 @@ Each step is also a standalone script (all support `-h/--help` and `--version`):
 ./ungroup.sh             <dir>          # reverse a grouping, to re-group differently
 ```
 
+And one helper that is not part of the pipeline:
+
+```sh
+./tools/log_upload.sh [--pushed DATE] [--confirmed DATE] [--log PATH] <batch_dir> [notes]
+```
+
+Appends a row to `upload-log.md` recording that a batch has been confirmed backed up. It
+reads the batch name, its import folder and its file count from the directory and stamps
+today's date. **It detects nothing** — whether the upload finished is something only you can
+establish, by checking the service. This just saves you formatting the row by hand. See
+[Recording confirmed uploads](#recording-confirmed-uploads).
+
+## Recording confirmed uploads
+
+The per-run `library-ledger.tsv` records what the toolkit **produced**. It cannot record what
+your backup service actually **received** — the scripts run on your computer, the upload
+happens elsewhere. That gap matters, because it is the gap you are standing in every time you
+delete a local copy.
+
+So the confirmation is manual, kept in an `upload-log.md` you own:
+
+```markdown
+| Batch | Import | Files | Pushed | Backup confirmed | Notes |
+|---|---|---|---|---|---|
+| 260415-260503-9.8GB | 2026July28 | 1204 | 2026-08-30 | 2026-08-31 | motion verified |
+```
+
+Add a row once a batch is confirmed, *before* you reclaim the space. `tools/log_upload.sh`
+will write the row for you; typing it by hand works just as well. The Notes column is free
+text and entirely optional.
+
 ## Configuration
 
 Every tunable has a built-in default that reproduces the author's current iPhone → Pixel
@@ -245,6 +276,19 @@ MIT — see [LICENSE](LICENSE). The bundled `MotionPhoto2-main/` tool is a separ
 ## Changelog
 
 ### Unreleased
+- **tools/log_upload.sh (new):** records a confirmed upload as a row in `upload-log.md`,
+  reading the batch name, import folder and file count from the batch directory and stamping
+  the date. It **confirms nothing** — whether a backup finished is knowable only by checking
+  the service, so the operator does that and the script just writes down the result. Covered
+  by `test/test_log_upload.bats` (9 tests). See
+  [Recording confirmed uploads](#recording-confirmed-uploads).
+- **docs:** documented the upload log and how it differs from the automatic
+  `library-ledger.tsv` (ledger = what was produced; upload log = what the service confirmed).
+  Marked `adb` as optional throughout — OpenMTP and the phone's own UI cover every transfer
+  step, which matters on devices without USB debugging. Corrected `WORKFLOW.md` Appendix A:
+  the backlog it pointed at (`Import2here/Leong/iphone_photos/`) has been superseded by
+  `Import2here/2026July28/`, which contains 10,418 of its 10,472 files.
+- **CI:** shellcheck now runs with `-x` over `tools/*.sh` as well as the top-level scripts.
 - **lib.sh:** appended `Keys:CreationDate` to `PHOTO_VIDEO_DATE_TAGS`. The chain previously
   ended on `QuickTime:CreateDate`, which Apple stores in **UTC with no offset**, so every
   video was named 8 hours away from its still in UTC+8 — skewing batch date ranges and

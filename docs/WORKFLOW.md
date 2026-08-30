@@ -149,8 +149,12 @@ Already installed and verified on this machine:
 ```sh
 exiftool -ver         # 13.36
 command -v motionphoto2   # /usr/local/bin/motionphoto2
-command -v adb            # /opt/homebrew/bin/adb
+command -v adb            # optional — OpenMTP covers every transfer step without it
 ```
+
+Only the first two are required. `adb` is a convenience for the scriptable paths below; if
+your phone has no USB debugging (a managed or locked device, or Developer Options
+unavailable), every step still works through OpenMTP and the phone's own UI.
 
 If you ever need to reinstall:
 
@@ -201,6 +205,9 @@ prompt on the phone. You should see the serial listed as `device`, not `unauthor
 ```sh
 adb shell df -h /sdcard
 ```
+
+No `adb`? On the phone: **Settings → Storage**. OpenMTP also shows free space on the device
+once it's connected. Any of the three gives you the number.
 
 This determines your Batch size. See [Stage 3](#stage-3-run-the-script).
 
@@ -429,6 +436,7 @@ skips it and previews rename/group against the input.)
 
 ```sh
 adb shell df -h /sdcard      # with the Pixel connected
+# no adb? Settings -> Storage on the phone, or read it in OpenMTP
 ```
 
 Rule of thumb: **Batch size ≤ 50% of the Pixel's free space.** Google Photos needs working
@@ -588,16 +596,26 @@ log, and it's where photos get lost.
    - the newest photos match the Batch's date range;
    - pick a couple of Motion Photos and confirm they **animate** (Google Photos shows a
      motion badge and plays the clip). This is the real proof muxing worked end to end.
-5. **Record it in the Upload log.** Create `$LIB/upload-log.md` if it doesn't exist:
+5. **Record it in the Upload log** (`$LIB/upload-log.md`), before you reclaim any space:
+
+   ```sh
+   "$SCRIPT/tools/log_upload.sh" "$RESULTS/260701-260714-9.8GB" "motion photos verified"
+   ```
+
+   The helper reads the Batch name, its Import folder and its file count from the directory
+   and stamps today's date (`--pushed` / `--confirmed` override, `--log` picks a different
+   file, and the trailing note is optional). Equivalently, type the row yourself:
 
    ```markdown
    | Batch | Import | Files | Pushed | Backup confirmed | Notes |
    |---|---|---|---|---|---|
-   | 260701-260714-9.8GB | 2026-07-28 | 3,412 | 2026-07-28 | 2026-07-29 | motion photos verified |
+   | 260701-260714-9.8GB | 2026July28 | 3412 | 2026-07-28 | 2026-07-29 | motion photos verified |
    ```
 
-   Only fill in **Backup confirmed** after step 4 passes. That column is the fact everything
-   else in this workflow depends on.
+   **The helper confirms nothing.** It cannot: the scripts run on the Mac and the upload
+   happens between the phone and Google. Step 4 is the confirmation; the script only writes
+   down the result. Only fill in **Backup confirmed** after step 4 passes — that column is
+   the fact everything else in this workflow depends on.
 
 ---
 
@@ -726,7 +744,8 @@ Work through these in order:
    folders → check the Batch folder is ON. New folders default to OFF.
 2. **Is backup finished?** The Photos tab header will say so. "Backup complete" means
    complete; anything else means keep waiting.
-3. **Are the files still on the device?** `adb shell ls /sdcard/DCIM/` — if you ran "Free up
+3. **Are the files still on the device?** `adb shell ls /sdcard/DCIM/`, or just browse
+   `Internal Storage/DCIM/` in OpenMTP — if you ran "Free up
    space" prematurely, they're gone from the phone.
 4. **Is the phone throttling background upload?** Settings → Apps → Google Photos → Battery
    → set to **Unrestricted**. Plug in, connect to Wi-Fi, open the app and leave it open.
@@ -1084,20 +1103,42 @@ toolkit exists to correct — so their Live Photo pairs may already be broken. W
 before you assume that archive is a safe fallback. Renaming the folder to something honest,
 like `archive-renamed-legacy/`, would stop it from misleading you later.
 
-**Running the backlog.** Once you've read Stages 2–4 above, the pending 49 GB is just an
-Import that's already sitting on disk:
+### Superseded by a later import — corrected 2026-08-30
+
+A second, larger Import has since landed at `Import2here/2026July28/` (13,793 files, 64 GB),
+and **it is very nearly a superset of `Leong/iphone_photos/`**: 10,418 of that folder's
+10,472 files appear in it by name. Only **54 files are unique** to the older folder — mostly
+`IMG_9xxx.MOV` clips and screenshots, presumably deleted from the phone between the two
+imports.
+
+**So process `2026July28/`, not `Leong/iphone_photos/`.** Running both would push roughly
+10,000 duplicates: the muxed output differs byte-for-byte from the plain originals, so
+Google's deduplication will not reliably collapse them.
 
 ```sh
 LIB="/Volumes/Aca_WD/media/Import from Image Capture"
 SCRIPT="$LIB/script"
-IMPORT="$LIB/Import2here/Leong/iphone_photos"      # note: the FILES live here, not in Leong/
+IMPORT="$LIB/Import2here/2026July28"               # the FILES live here — non-recursive!
 
 "$SCRIPT/masterscript.sh" --dry-run "$IMPORT"      # preview first
 "$SCRIPT/masterscript.sh" --size 10G "$IMPORT"     # then commit
 ```
 
-Disk check: 49 GB in, roughly 2× that during processing, against 873 GB free on `Aca_WD`.
-Comfortable. At 10 GB per Batch expect roughly 4–5 Batches, so 4–5 rounds of Stages 5–7.
+Expect roughly **5,562 Motion Photos** (the Live Photo pair count in that folder) and about
+7 Batches at 10 GB, so 7 rounds of Stages 5–7. Disk check: 64 GB in, roughly 2× that during
+processing, against 861 GB free on `Aca_WD`. Comfortable.
+
+Afterwards, the 54 stragglers are worth a small separate run:
+
+```sh
+cd "$LIB/Import2here"
+mkdir -p Leong-unique
+comm -23 <(ls Leong/iphone_photos | sort) <(ls 2026July28 | sort) \
+  | while IFS= read -r f; do cp -p "Leong/iphone_photos/$f" Leong-unique/; done
+```
+
+Verify the sizes match before treating the older folder as redundant — a shared filename is
+not proof of a shared file.
 
 ---
 
@@ -1135,7 +1176,8 @@ adb push "$IMPORT/muxed-photo/<BATCH>" /sdcard/DCIM/ && adb reboot
 #    -> Google Photos: Back up device folders -> toggle ON for the new folder
 #    -> confirm Backup quality = Original quality
 
-# 6. Confirm on photos.google.com, check a Motion Photo animates, then log it in upload-log.md
+# 6. Confirm on photos.google.com, check a Motion Photo animates, THEN record it:
+"$SCRIPT/tools/log_upload.sh" "$IMPORT/muxed-photo/<BATCH>" "motion verified"
 
 # 7. Google Photos -> Free up space.  Next Batch.  Repeat 5-7.
 #    All Batches confirmed -> rm -rf "$IMPORT/muxed-photo".  KEEP the Originals.
