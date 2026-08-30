@@ -2,6 +2,43 @@
 
 ![CI](https://github.com/leongyeehang/iphone-pixel-google-photo-import/actions/workflows/ci.yml/badge.svg)
 
+## TL;DR
+
+```sh
+# 1. Preview — changes nothing, safe to run any time
+./masterscript.sh --dry-run /path/to/import
+
+# 2. Run it. Originals are never modified; results land in <import>/muxed-photo/
+./masterscript.sh --size 10G /path/to/import
+
+# 3. Check the muxing worked before transferring anything
+exiftool -q -q -if '$XMP-GCamera:MotionPhoto' -p '$FileName' -r /path/to/import/muxed-photo | wc -l
+
+# 4. Copy ONE  YYMMDD-YYMMDD-#.#GB/  folder to the phone, upload it, confirm it, then:
+./tools/log_upload.sh /path/to/import/muxed-photo/<BATCH> "motion verified"
+```
+
+**The recommended way to use this:**
+
+1. **One folder per import, original filenames.** Don't rename anything by hand — muxing
+   pairs Live Photos by their embedded ID, and the script renames afterwards.
+2. **Point the script at the folder that directly contains the files.** Everything is
+   non-recursive: a parent folder exits successfully having done nothing.
+3. **Dry-run first.** It writes no files, no logs, no checkpoints.
+4. **Size batches at ≤ 50% of the target device's free space** (`--size 10G` for a 32 GB
+   phone). Interrupted? Re-run the same command — it resumes from checkpoints.
+5. **Verify the Motion Photo count before transferring.** A missing `motionphoto2` is a
+   *warning*, not an error, so a count of zero is easy to miss in a long log.
+6. **One batch at a time.** Transfer it, upload it, confirm it on the service from another
+   device, record it in `upload-log.md` — *then* reclaim the space and move to the next.
+7. **Delete nothing until it's confirmed.** `muxed-photo/` is disposable and reproducible;
+   your originals are not. Keep them.
+
+Full procedure in [docs/CHECKLIST.md](docs/CHECKLIST.md), reference and recovery in
+[docs/WORKFLOW.md](docs/WORKFLOW.md).
+
+---
+
 Batch-organize a folder of photos and videos in up to three steps:
 
 1. **(optional) Mux** — fuse iPhone **Live Photos** (`IMG_1234.JPG` + `IMG_1234.MOV`) into a single Google **Motion Photo**, so the motion survives on Android / Google Photos.
