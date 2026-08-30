@@ -7,7 +7,7 @@ Optional: keep a paper trail by copying this per import —
 `cp docs/CHECKLIST.md "library/$(date +%F)/checklist.md"`
 
 ```sh
-LIB="/Volumes/Aca_WD/media/Import from Image Capture"
+LIB="/Volumes/Aca_WD/PHOTO/Import from Image Capture"
 SCRIPT="$LIB/script"
 IMPORT="$LIB/library/$(date +%Y-%m-%d)"
 ```

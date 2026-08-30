@@ -217,7 +217,7 @@ Proposed canonical layout. Your existing folders don't match it yet — see
 [Appendix A](#appendix-a-current-disk-state-and-the-backlog) — but new Imports should:
 
 ```
-/Volumes/Aca_WD/media/Import from Image Capture/
+/Volumes/Aca_WD/PHOTO/Import from Image Capture/
 ├── script/                      ← this toolkit
 │   └── docs/WORKFLOW.md         ← this document
 ├── upload-log.md                ← you maintain this
@@ -243,7 +243,7 @@ why no manual renaming is ever needed.
 Set this once per session so the commands below are copy-pasteable:
 
 ```sh
-LIB="/Volumes/Aca_WD/media/Import from Image Capture"
+LIB="/Volumes/Aca_WD/PHOTO/Import from Image Capture"
 SCRIPT="$LIB/script"
 IMPORT="$LIB/library/$(date +%Y-%m-%d)"     # today's Import folder
 ```
@@ -1116,7 +1116,7 @@ imports.
 Google's deduplication will not reliably collapse them.
 
 ```sh
-LIB="/Volumes/Aca_WD/media/Import from Image Capture"
+LIB="/Volumes/Aca_WD/PHOTO/Import from Image Capture"
 SCRIPT="$LIB/script"
 IMPORT="$LIB/Import2here/2026July28"               # the FILES live here — non-recursive!
 
@@ -1147,7 +1147,7 @@ not proof of a shared file.
 Once the above is second nature, this is the whole workflow:
 
 ```sh
-LIB="/Volumes/Aca_WD/media/Import from Image Capture"
+LIB="/Volumes/Aca_WD/PHOTO/Import from Image Capture"
 SCRIPT="$LIB/script"
 IMPORT="$LIB/library/$(date +%Y-%m-%d)"
 
