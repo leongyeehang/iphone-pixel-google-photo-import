@@ -830,10 +830,39 @@ next to the iPhone Live Photo:
 | **A** | plain pipeline mux (`muxed-photo/IMG_9305.HEIC`) | **better of the two** |
 | **B** | crop + `vidstab` (`FIXED/IMG_9305_FIXED2.HEIC`) | worse |
 
-**Neither matched the iPhone, and the baked-in fix made playback worse — so it is not going
-into the pipeline.** Generic stabilisation fights motion that Apple's transform would have
-corrected differently, and the crop re-encodes an already-soft 2.8 MP video. The A/B harness
-(`tools/motion_ab_test.sh`) has been removed; don't rebuild this experiment.
+**Neither matched the iPhone, and the baked-in fix made playback worse — so crop+`vidstab`
+is not going into the pipeline.** Generic stabilisation fights motion that Apple's transform
+would have corrected differently, and the crop re-encodes an already-soft 2.8 MP video.
+
+**But that A/B changed two variables at once, so it did not settle the question.** Candidate
+B was crop **and** stabilisation; the control was neither. Crop alone and trim alone were
+never tested. See the next subsection.
+
+### Where the wobble actually lives — measured, 2026-08-26
+
+The motion was measured frame by frame (FFT phase correlation against the still's framing,
+`motion-trim-test/settle.py`) on `20250705_122600`:
+
+| Window | Displacement from the still's framing |
+|---|---|
+| 0.00 – 0.60 s | up to **190 px** (2.2× Apple's 88 px crop margin) |
+| 0.60 – 1.73 s | 4–20 px, and 0 px for the last 0.4 s |
+| after the still marker (1.40 s) | 6 px |
+
+**The wobble is almost entirely the first ~0.6 s** — the camera settling before the shutter.
+Google Photos plays from t=0, so you watch it swing into place; iOS stabilises that away.
+
+Apple writes HEVC keyframes at 0.000, 0.567, 1.133 and **1.400 s (exactly the still-image
+time)**, so the settling can be cut with a **stream copy — bit-exact, no re-encode.** Verified:
+all 34 kept frames hash identical to the source tail. `ffmpeg` mangles Apple's `mebx`
+metadata tracks (`mebx` → `stts`, losing the still marker: `ts=-1`); an AVFoundation
+passthrough export (`motion-trim-test/trimlive.swift`) preserves all three `mebx` tracks, the
+`lpcm` audio and the `ContentIdentifier`, and the marker lands correctly at `ts=835000`.
+
+**Caveat — it is clip-dependent.** Across six clips, three settle early (trim wins) and three
+carry motion to the last frame (trim would gut them). Any pipeline version of this needs the
+per-clip settle measurement, not a fixed offset. Also note the measurement cannot tell
+pre-shutter settling from an intentional pan.
 
 Two related things were proven along the way and are worth keeping:
 
@@ -844,8 +873,92 @@ Two related things were proven along the way and are worth keeping:
   Google Photos then can't parse the file at all — the first fix candidate was unviewable for
   exactly this reason. Byte patches only, same length.
 
-**Status: accepted limitation.** The still — the artifact that actually matters — is
-byte-perfect at full resolution.
+**The trim was tested too, and it also failed — 2026-08-27.** `B_trimmed.HEIC` (lossless trim
+from 0.567 s, bit-exact) was compared against the plain mux in Google Photos on the Pixel:
+**no perceptible difference.** So cutting the pre-shutter settling — even though the settling
+is real, measurable, and removable at zero quality cost — does not change what you see. That
+rules out "Google plays the settling" as the dominant cause, and the trim is a **tested
+negative**: don't rebuild it.
+
+Two candidates down, both rejected on the device:
+
+| Round | Candidate | Cost | Verdict |
+|---|---|---|---|
+| 1 | crop to clean aperture + `vidstab` | lossy re-encode | **worse** than plain mux |
+| 2 | lossless trim of the settling | free (stream copy) | **no difference** |
+
+**Also checked and cleared: the still image.** The muxed HEIC is identical to the original on
+every HDR field — `HDRGainMapVersion 0.2.0.0`, `HDRGainMapHeadroom 5.229666`, `HDRHeadroom
+1.00999999`, `AuxiliaryImageType urn:com:apple:photo:2020:aux:hdrgainmap`, `Display P3` — and
+muxing keeps Apple's `HDRGainMap` XMP namespace alongside Google's. Confirmed on-device that
+the still renders correctly; only the motion is wrong. Note Apple's gain map is proprietary,
+not the ISO form Google reads, so if an HDR difference ever does appear it is a property of the
+photo, not of muxing.
+
+### Round 3: the metadata-track candidate — also failed
+
+The Motion Photo 1.0 spec defines an optional metadata track inside the embedded video, MIME
+`application/motionphoto-image-meta`, whose `isStabilized` flag reads: *"Set to true to indicate
+the video frames have been stabilized and don't require readers of the track to apply any further
+stabilization."* That implies a reader **may** stabilise when told the frames are not stabilised.
+Our muxed files carried no such track at all, so Google Photos got no signal either way.
+
+`tools/add_metatrack.py` adds one — a 36-byte ISO/IEC 14496-1 descriptor with `modelVersion=0`,
+`presentationTimestampUs` matching the XMP value, and `isStabilized=false` — in its own appended
+`mdat`. Purely additive (`moov` is the last top-level box, so no chunk offset moves) and verified
+bit-identical in the pixels. **On the Pixel it looked the same as the plain mux.** Google Photos
+ignores the flag.
+
+### The decisive test — 2026-08-27
+
+The user then ran the experiment that settles the whole question: **view the same Live Photo in
+Apple Photos and in Google Photos, both apps on the iPhone itself, locally, with no cloud upload
+and no conversion of any kind.** The motion still differed.
+
+**That exonerates this entire pipeline.** No muxing, no `motionphoto2`, no trim, no metadata
+track, no Pixel, no upload, no HDR was involved. The difference reproduces with the *original
+Apple file on the original Apple device*. The cause is simply that **the Google Photos player
+does not apply Apple's playback-time corrections** — the `mebx` camera-motion data, the clean
+aperture crop, the `live-photo-still-image-transform`. Apple's own key table confirms all of it
+ships inside the `.MOV`:
+
+```
+com.apple.quicktime.live-photo-still-image-transform
+com.apple.quicktime.live-photo-still-image-transform-reference-dimensions
+com.apple.quicktime.still-image-time
+com.apple.quicktime.video-orientation        CoreMotion / CMCaptureCore
+```
+
+The data is present and Google ignores it. That is why all three candidates failed: we kept
+handing different files to a player whose behaviour does not depend on them.
+
+**Status: closed — accepted limitation, and not a property of this toolkit.** Every Live Photo in
+this library plays this way in Google Photos whether or not it ever goes through these scripts.
+The pipeline costs nothing in motion fidelity. What it protects — the still, byte-perfect at
+5712×4284 and stored byte-for-byte at Original quality — is intact.
+
+**Three rejected candidates. Do not retry any of them:**
+
+| Round | Candidate | Cost | Verdict |
+|---|---|---|---|
+| 1 | crop to clean aperture + `vidstab` | lossy re-encode | worse than plain mux |
+| 2 | lossless trim of pre-shutter settling | free | no difference |
+| 3 | `motionphoto-image-meta` track, `isStabilized=false` | free | no difference |
+
+The only avenue never tried is decoding Apple's own `live-photo-still-image-transform` and
+per-frame `CoreMotion` samples and baking them into the pixels. It needs a re-encode, which is
+round 1's territory — and round 1 established that baked-in corrections look worse, not better.
+Not worth it.
+
+**What the wider world says.** Other people hit this too: Google Photos "transforms iPhone
+live photos into motion photos, which can look distorted and bad as a result", and there are
+Google Photos threads asking how to turn its Live Photo stabilisation *off*. Google's own
+motion photos look clean because the Pixel stores gyroscope and OIS readings at capture and
+stabilises in-camera; Google's Motion Stills stabilisation reaches Live Photos through the
+Google Photos app, and the manual **Stabilize** control is Android-only and lives in the
+*video* editor — none of which applies to a sideloaded muxed Motion Photo. Notably, no issue
+on the `motionphoto2` tracker reports wobble or distortion, which is consistent with the
+muxer being correct and the gap being format-level.
 
 ### Mux runs before rename — and why the order still matters
 
