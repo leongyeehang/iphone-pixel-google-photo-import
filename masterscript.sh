@@ -310,6 +310,11 @@ write_summary_and_ledger
 
 # Preserve the consolidated log into the results dir, then clean up work dirs.
 cp "$LOG_FILE" "$TARGET/workflow.log" 2>/dev/null || true
+# rename_media.sh points the user at its error log, so it must outlive the cleanup below.
+# Must happen before BOTH rm -rf calls: when muxing did not run, TARGET/.workflow IS WORK_DIR.
+if [[ -s "$TARGET/.workflow/rename_errors.log" ]]; then
+    cp "$TARGET/.workflow/rename_errors.log" "$TARGET/rename_errors.log" 2>/dev/null || true
+fi
 rm -rf "$WORK_DIR"
 # rename_media.sh writes its own logs into <target>/.workflow/; if that's a different
 # directory from WORK_DIR (i.e. muxing ran), remove the leftover too.

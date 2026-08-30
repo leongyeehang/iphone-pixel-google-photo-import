@@ -87,12 +87,32 @@ echo "" | tee -a "$LOG_FILE"
 echo "--- Renaming photos ---" | tee -a "$LOG_FILE"
 exiftool "${photo_args[@]}" -d '%Y%m%d_%H%M%S%%-c.%%e' "$TARGET_DIR" 2>> "$ERROR_LOG" | tee -a "$LOG_FILE" || true
 
+# exiftool writes BOTH failures and informational notices to stderr, so the line count
+# is not an error count. Two notices are routine for this pipeline's OWN correct output:
+#   "Google trailer MotionPhoto video/quicktime not handled"  - every muxed JPG Motion Photo
+#   "[minor] The ExtractEmbedded option may find more tags"   - every video
+# Counting those as errors made a clean run report thousands of them.
+echo "" | tee -a "$LOG_FILE"
 if [[ -s "$ERROR_LOG" ]]; then
-    error_count=$(wc -l < "$ERROR_LOG" | tr -d ' ')
-    echo "" | tee -a "$LOG_FILE"
-    echo "Warning: $error_count error(s) encountered. See $ERROR_LOG for details." | tee -a "$LOG_FILE"
+    # Classify by MEANING, not by prefix - see benign_notice_count() in lib.sh.
+    notices=$(benign_notice_count "$ERROR_LOG")
+    total=$(message_line_count "$ERROR_LOG")
+    real_errors=$((total - notices))
+
+    if [[ "$real_errors" -gt 0 ]]; then
+        echo "Warning: $real_errors problem(s) encountered. See $ERROR_LOG for details." | tee -a "$LOG_FILE"
+        # NB: a bare `[[ ... ]] && echo` here would return 1 when false and trip `set -e`.
+        if [[ "$notices" -gt 0 ]]; then
+            echo "($notices expected Motion Photo/video notice(s) also logged.)" | tee -a "$LOG_FILE"
+        fi
+    elif [[ "$notices" -gt 0 ]]; then
+        echo "Done. No failures. $notices expected exiftool notice(s) logged." | tee -a "$LOG_FILE"
+        echo "(Motion Photo trailers and video ExtractEmbedded hints - both are normal.)" | tee -a "$LOG_FILE"
+        echo "See $ERROR_LOG if you want to read them." | tee -a "$LOG_FILE"
+    else
+        echo "Done. No errors encountered." | tee -a "$LOG_FILE"
+    fi
 else
-    echo "" | tee -a "$LOG_FILE"
     echo "Done. No errors encountered." | tee -a "$LOG_FILE"
     [[ -f "$ERROR_LOG" ]] && rm -f "$ERROR_LOG"
 fi

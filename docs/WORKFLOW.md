@@ -979,6 +979,36 @@ Google Photos app, and the manual **Stabilize** control is Android-only and live
 on the `motionphoto2` tracker reports wobble or distortion, which is consistent with the
 muxer being correct and the gap being format-level.
 
+### The rename step's "errors" are usually exiftool notices
+
+A successful run can end the rename step with a large error count — the July 2026 import
+reported **1,986**. Nothing had failed: all 8,172 output files were renamed and the file
+accounting balanced exactly. exiftool writes informational notices to stderr alongside real
+failures, and three are routine here:
+
+| Line | Emitted for |
+|---|---|
+| `Warning: Google trailer MotionPhoto video/quicktime not handled` | every muxed **JPG** Motion Photo |
+| `Warning: [minor] The ExtractEmbedded option may find more tags` | every video |
+| `Warning: File name is unchanged` | a re-run over already-renamed files |
+
+The first is exiftool noticing the video appended inside a Motion Photo and declining to parse
+it — **that warning is the muxer working**. HEIC Motion Photos emit nothing; only JPG ones do,
+because a JPEG carrying a Google trailer is unusual enough to remark on. In that import,
+1,591 JPG Motion Photos plus 396 videos accounted for all 1,986 lines.
+
+The toolkit now classifies these (`benign_notice_count` in `lib.sh`) and reports
+`Done. No failures. N expected exiftool notice(s)` instead of calling them errors.
+
+**Why classification is by meaning, not by prefix:** exiftool labels almost everything
+`Warning:`, including genuine failures — an unreadable file yields `Warning: Error opening
+file`. Filtering on `Error:` would therefore hide real problems. The known-benign notices are
+matched explicitly and *everything else* counts as a problem, so an unrecognised message is
+surfaced rather than swallowed.
+
+`rename_errors.log` is now preserved into the results directory. It used to be deleted by the
+success-path cleanup, so the message pointed at a file that no longer existed.
+
 ### Mux runs before rename — and why the order still matters
 
 `run_mux_motionphoto.sh` passes `--exif-match`, and in that mode `motionphoto2` pairs Live

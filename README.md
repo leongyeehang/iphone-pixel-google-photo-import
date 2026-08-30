@@ -313,6 +313,17 @@ MIT — see [LICENSE](LICENSE). The bundled `MotionPhoto2-main/` tool is a separ
 ## Changelog
 
 ### Unreleased
+- **rename_media.sh / lib.sh:** the rename step no longer reports exiftool's informational
+  notices as errors. A clean run over muxed JPG Live Photos used to end with e.g.
+  `1986 error(s) encountered` when nothing had failed — those lines were
+  `Google trailer MotionPhoto video/quicktime not handled` (one per muxed JPG Motion Photo),
+  `[minor] The ExtractEmbedded option may find more tags` (one per video) and
+  `File name is unchanged` (a re-run over already-renamed files). Classification is by
+  meaning rather than prefix, because exiftool labels real failures `Warning:` too (an
+  unreadable file yields `Warning: Error opening file`); known-benign notices are matched
+  explicitly and anything else is surfaced as a problem.
+- **masterscript.sh:** `rename_errors.log` is preserved into the results directory. The
+  success-path cleanup deleted it, so the message named a file that was already gone.
 - **tools/log_upload.sh (new):** records a confirmed upload as a row in `upload-log.md`,
   reading the batch name, import folder and file count from the batch directory and stamping
   the date. It **confirms nothing** — whether a backup finished is knowable only by checking

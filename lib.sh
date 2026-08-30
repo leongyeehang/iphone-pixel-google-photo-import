@@ -43,6 +43,29 @@ is_video_file() {
 }
 is_media_file() { is_image_file "$1" || is_video_file "$1"; }
 
+# --- exiftool stderr classification -------------------------------------------
+# exiftool labels almost everything "Warning:", including real failures such as
+# "Warning: Error opening file" - so the prefix cannot separate noise from harm.
+# These two notices are emitted by this pipeline's OWN correct output on every run:
+#   "Google trailer MotionPhoto video/quicktime not handled"  - each muxed JPG Motion Photo
+#   "[minor] The ExtractEmbedded option may find more tags"   - each video
+#   "File name is unchanged"                                  - re-running over renamed files
+# The last one makes a repeat run idempotent rather than alarming: the computed name simply
+# already matches. Anything else in the log is treated as a problem worth surfacing.
+EXIFTOOL_BENIGN_RE='Google trailer MotionPhoto|ExtractEmbedded option may find|File name is unchanged'
+
+benign_notice_count() {
+    [[ -f "$1" ]] || { echo 0; return 0; }
+    grep -cE "$EXIFTOOL_BENIGN_RE" "$1" 2>/dev/null || true
+}
+
+# Count only actual messages. exiftool also writes run summaries to stderr
+# ("1 directories scanned", "0 image files read"), which are not problems.
+message_line_count() {
+    [[ -f "$1" ]] || { echo 0; return 0; }
+    grep -cE '^(Warning|Error)' "$1" 2>/dev/null || true
+}
+
 # --- Portable filesystem / date / size helpers --------------------------------
 stat_size() {
     if [[ "$OSTYPE" == "darwin"* ]]; then stat -f "%z" "$1"; else stat -c "%s" "$1"; fi

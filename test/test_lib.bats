@@ -68,3 +68,49 @@ setup() {
   run dir_size_kb "$tmp/nope";[ "$status" -eq 0 ]; [ "$output" = "0" ]
   rm -rf "$tmp"
 }
+
+@test "benign_notice_count matches only the two expected exiftool notices" {
+  L="$BATS_TEST_TMPDIR/err.log"
+  cat > "$L" <<'LOG'
+Warning: Google trailer MotionPhoto video/quicktime not handled - /a/b.JPG
+Warning: [minor] The ExtractEmbedded option may find more tags in the media data - /a/c.MOV
+LOG
+  [ "$(benign_notice_count "$L")" -eq 2 ]
+  [ "$(message_line_count "$L")" -eq 2 ]
+}
+
+@test "a real failure is not counted as a benign notice" {
+  L="$BATS_TEST_TMPDIR/err.log"
+  cat > "$L" <<'LOG'
+Warning: Google trailer MotionPhoto video/quicktime not handled - /a/b.JPG
+Warning: Error opening file - /a/d.JPG
+Warning: No writable tags set from /a/d.JPG
+LOG
+  [ "$(benign_notice_count "$L")" -eq 1 ]
+  [ "$(message_line_count "$L")" -eq 3 ]   # 3 - 1 = 2 real problems
+}
+
+@test "re-running over already-renamed files is idempotent, not a problem" {
+  L="$BATS_TEST_TMPDIR/err.log"
+  cat > "$L" <<'LOG'
+Warning: File name is unchanged - /a/20260418_145408.HEIC
+LOG
+  [ "$(message_line_count "$L")" -eq 1 ]
+  [ "$(benign_notice_count "$L")" -eq 1 ]   # 1 - 1 = 0 problems
+}
+
+@test "exiftool run summaries on stderr are not counted as problems" {
+  L="$BATS_TEST_TMPDIR/err.log"
+  cat > "$L" <<'LOG'
+    1 directories scanned
+    0 image files read
+Warning: Google trailer MotionPhoto video/quicktime not handled - /a/b.JPG
+LOG
+  [ "$(message_line_count "$L")" -eq 1 ]
+  [ "$(benign_notice_count "$L")" -eq 1 ]   # 1 - 1 = 0 problems
+}
+
+@test "the counters are safe on a missing file" {
+  [ "$(benign_notice_count "$BATS_TEST_TMPDIR/nope.log")" -eq 0 ]
+  [ "$(message_line_count "$BATS_TEST_TMPDIR/nope.log")" -eq 0 ]
+}

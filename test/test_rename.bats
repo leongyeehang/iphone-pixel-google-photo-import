@@ -132,3 +132,37 @@ teardown() {
   [ "$status" -eq 0 ]
   [ -f "$TMP/muxed-photo/library-ledger.tsv" ]
 }
+
+# --- exiftool stderr classification ----------------------------------------
+# exiftool labels almost everything "Warning:", including real failures
+# ("Warning: Error opening file"), so classification is by meaning, not prefix.
+
+@test "a genuine failure is surfaced as a problem, despite its Warning: prefix" {
+  printf 'x' > "$TMP/IMG_0001.JPG"
+  chmod 000 "$TMP/IMG_0001.JPG"            # exiftool cannot open it
+  run "$DIR/rename_media.sh" "$TMP"
+  chmod 644 "$TMP/IMG_0001.JPG" || true
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"problem(s) encountered"* ]]
+  [[ "$output" != *"No failures"* ]]
+}
+
+@test "a clean rename reports no errors and removes the empty error log" {
+  printf 'x' > "$TMP/IMG_0001.JPG"          # renames via the FileModifyDate fallback
+  run "$DIR/rename_media.sh" "$TMP"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"No errors encountered"* ]]
+  [ ! -f "$TMP/.workflow/rename_errors.log" ]
+}
+
+@test "masterscript preserves rename_errors.log into the results dir" {
+  printf 'x' > "$TMP/IMG_0001.JPG"
+  chmod 000 "$TMP/IMG_0001.JPG"
+  run "$DIR/masterscript.sh" --skip-mux --in-place --skip-group "$TMP"
+  chmod 644 "$TMP/IMG_0001.JPG" || true
+  [ "$status" -eq 0 ]
+  # The run points the user at an error log, so it must outlive the cleanup - and
+  # in-place is the harder branch: there TARGET/.workflow IS WORK_DIR.
+  [ -f "$TMP/rename_errors.log" ]
+  [ ! -d "$TMP/.workflow" ]
+}
