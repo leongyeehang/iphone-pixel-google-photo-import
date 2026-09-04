@@ -217,7 +217,7 @@ Proposed canonical layout. Your existing folders don't match it yet — see
 [Appendix A](#appendix-a-current-disk-state-and-the-backlog) — but new Imports should:
 
 ```
-/Volumes/Aca_WD/PHOTO/Import from Image Capture/
+/Volumes/Aca_WD/PHOTO/ImageCapture/
 ├── script/                      ← this toolkit
 │   └── docs/WORKFLOW.md         ← this document
 ├── upload-log.md                ← you maintain this
@@ -243,7 +243,7 @@ why no manual renaming is ever needed.
 Set this once per session so the commands below are copy-pasteable:
 
 ```sh
-LIB="/Volumes/Aca_WD/PHOTO/Import from Image Capture"
+LIB="/Volumes/Aca_WD/PHOTO/ImageCapture"
 SCRIPT="$LIB/script"
 IMPORT="$LIB/library/$(date +%Y-%m-%d)"     # today's Import folder
 ```
@@ -284,7 +284,7 @@ Note its date.
 Example: high-water mark is `2026-07-14`, today is `2026-07-28`. Import
 **2026-07-15 through 2026-07-27**. Today (the 28th) is still accumulating, so it waits.
 
-**Why day boundaries and not "the exact last photo".** A Batch is cut at a 15 GB size limit,
+**Why day boundaries and not "the exact last photo".** A Batch is cut at a 7 GB size limit,
 not at a date. That limit lands wherever it lands — very often in the middle of a day. If
 you cut your *next* Import at the last uploaded photo's timestamp, and that timestamp was
 14:30 on the 14th, you will either skip the 14th's afternoon or re-import it. Day boundaries
@@ -441,8 +441,8 @@ adb shell df -h /sdcard      # with the Pixel connected
 
 Rule of thumb: **Batch size ≤ 50% of the Pixel's free space.** Google Photos needs working
 room for its upload cache, and a full `/sdcard` fails in confusing ways. On a 32 GB Pixel 1
-(~24 GB usable, less whatever's installed) that means **10G**, not the 15G default. On a
-128 GB Pixel, 15G–30G is fine.
+(~24 GB usable, less whatever's installed) that means **7G**, which is now the default. On a
+128 GB Pixel, 15G–30G is fine (raise it with `--size`).
 
 **Then the real run:**
 
@@ -627,10 +627,24 @@ In this order. Each step is safe only because the previous one succeeded.
 
 > Google Photos → avatar → **Free up space** → confirm
 
-This deletes only local copies of files Google has confirmed backed up. If it reports fewer
-items than your Batch contained, **some files did not upload** — go back to Stage 6.
+This deletes local copies of files Google has confirmed backed up — but it will **not clear
+the whole Batch, and that is normal.** Motion Photos are routinely left behind: measured on
+this library, 82 % of HEIC muxed output and 13 % of JPEG muxed output survives a fully
+confirmed backup, while every non-Motion-Photo is reclaimed without exception. See
+[`Free up space` leaves Motion Photos behind](#free-up-space-leaves-motion-photos-behind--measured-2026-09-04).
 
-Or, if you prefer to be explicit about it:
+**Leftovers are not evidence of a failed upload** — Stage 6 is the check that matters, not
+this one. Account for them before deleting anything: pull them off the phone into a folder
+and run
+
+```sh
+"$SCRIPT/tools/verify_residue.sh" ~/pixel-leftovers/260701-260714-9.8GB \
+    "$RESULTS/260701-260714-9.8GB"
+```
+
+Exit `0` means every leftover is a Motion Photo and byte-identical to its master on the Mac —
+normal, and safe to remove. Exit `2` prints `ATTENTION` lines saying what is off; read them
+before you delete. Then clear the remainder:
 
 ```sh
 adb shell rm -rf "/sdcard/DCIM/260701-260714-9.8GB"
@@ -979,6 +993,125 @@ Google Photos app, and the manual **Stabilize** control is Android-only and live
 on the `motionphoto2` tracker reports wobble or distortion, which is consistent with the
 muxer being correct and the gap being format-level.
 
+### `Free up space` leaves Motion Photos behind — measured, 2026-09-04
+
+**Symptom:** Google Photos reports the space reclaimed, but hundreds of files are still on
+the Pixel. Spot-checking them on photos.google.com shows they *are* backed up.
+
+**This is not a failed upload, and residue is not a warning sign.** Measured across two
+Batches of this library that were both pushed, confirmed, and recorded in `upload-log.md`:
+
+| Class | Files pushed | Left on device | Rate |
+|---|---:|---:|---:|
+| **HEIC** Motion Photo | 815 | 667 | **81.8 %** |
+| **JPEG** Motion Photo | 397 | 50 | **12.6 %** |
+| Everything else — plain JPEG, HEIC, MOV, MP4, PNG, DNG | 527 | **0** | **0.0 %** |
+| **Total** | **1,739** | **717** | 41.2 % |
+
+Two rules come out of this, and neither had an exception across both Batches:
+
+1. **A non-Motion-Photo is always reclaimed.** 527 for 527, across six file types.
+2. **A Motion Photo may not be**, and the *container* sets the odds: HEIC muxed output is
+   left behind roughly 6.5× more often than JPEG muxed output.
+
+**HEIC is neither necessary nor sufficient.** 50 JPEG Motion Photos were left behind, and
+2 of the 19 HEIC ones were reclaimed. The container shifts the probability; it does not
+decide the outcome. The condition that *is* absolute is rule 1 — being a Motion Photo at all.
+A left-behind JPEG Motion Photo (e.g. `20251024_220554.JPG`, an iPhone 15 Pro Max
+4032×3024 muxed still) is the expected 12.6 % case, not a counter-example.
+
+That ratio is the whole reason the two Batches looked so different. `New Folder With
+Items 2` is 90 % HEIC Motion Photos and left **650 of 882** behind; `New Folder With Items5`
+is 95 % JPEG and left only **67 of 857**. Same cause, different mix.
+
+**Scope: this measures *confirmed* Batches only.** Both were pushed, backed up, verified and
+recorded in `upload-log.md` before the count was taken. Residue from a Batch you have *not*
+confirmed means something else entirely — "Free up space" only ever deletes what Google says
+it holds, so an incomplete upload leaves everything behind, plain files included. Four older
+residue sets on this drive (`APhoto`, `Photo1`, `D`, and the loose files beside them) hold
+~1,580 plain files including 191 videos and 93 DNGs; they are un-muxed, un-renamed,
+pre-toolkit pushes with no `upload-log.md` row and no master left on disk to compare against,
+so they support no rate at all. Do not read them as a counter-example — read them as the
+reason Stage 6 exists.
+
+**The residue is safe to delete.** Every one of the 717 leftovers was SHA-256 compared
+against its master in the Results directory: **717 identical, 0 differing, 0 missing.**
+Deleting them from the phone by hand loses nothing.
+
+**What could not be determined.** Within Motion Photos the behaviour is probabilistic and
+nothing in the file explains it. Holding the container constant (the 397 JPEG Motion Photos
+of one Batch), every candidate discriminator overlaps between the 50 left behind and the 347
+reclaimed:
+
+| Property | left behind (n=50) | reclaimed (n=347) |
+|---|---|---|
+| `MotionPhotoVersion` | `1` on all | `1` on all |
+| pixel dimensions | 5712×4284 (35), 4032×3024 (15) | both, same mix |
+| embedded video size | median 4.06 MB, 1.67–6.25 | median 4.78 MB, 1.45–8.12 |
+| presentation timestamp | median 1.35 s, 0.90–1.47 | median 1.37 s, 0.21–1.50 |
+| `HDRGain` present | 50/50 | 347/347 |
+| capture model | iPhone 15 Pro Max | iPhone 15 Pro Max |
+
+Rule 1 is absolute; rule 2 is statistical; below rule 2 there is unexplained variance that
+nothing on disk accounts for.
+
+**The likely cause** is that Google Photos never fully registers a *sideloaded* muxed Motion
+Photo as a motion photo, so its storage bookkeeping never marks the local file safe to
+delete. HEIC faring worst is consistent with that — Google's own camera never produces
+motion photos in that container. It is a bookkeeping failure, not an upload failure.
+
+> ⚠️ **The one thing this does change.** If Google Photos is not registering these as motion
+> photos, confirm the *motion* survives and not just the still. Stage 6 step 4 already asks
+> for this; it matters most for HEIC. A backed-up still whose video trailer was dropped would
+> leave the Results directory as your only copy of the motion.
+
+**Shooting JPEG would mostly avoid it — and is still not worth it.** `motionphoto2`
+preserves the input container (HEIC in, HEIC out) and has no flag to force JPEG, so the only
+lever is the iPhone: *Settings → Camera → Formats → Most Compatible* puts the whole library
+on the 12.6 % row instead of the 81.8 % one. It also makes every file roughly twice the size
+at comparable quality and gives up 10-bit HDR capture, permanently — a heavy price for
+tidying a step that costs one manual delete per Batch. **Muxing is required either way:**
+Google Photos will never pair a loose `.JPG` + `.MOV` into a motion photo, whatever the
+format.
+
+**Checking it on your own run.** `tools/verify_residue.sh` does this accounting for you.
+Pull the leftovers off the Pixel into a folder, then:
+
+```sh
+"$SCRIPT/tools/verify_residue.sh" ~/pixel-leftovers/260415-260503-9.8GB \
+    "$RESULTS/260415-260503-9.8GB"
+```
+
+```
+Residue check: New Folder With Items5
+  Batch pushed:       857 files
+  Left on device:      67 files (7.8%)
+  Reclaimed:          790 files
+
+Left behind, by class:
+  CLASS                     LEFT  PUSHED    RATE
+  HEIC Motion Photo           17      19   89.5%
+  JPEG Motion Photo           50     397   12.6%
+  plain                        0     441    0.0%
+
+Integrity (leftover vs its master in the Batch):
+  identical                67
+  differing                 0
+  not in the Batch          0
+
+OK: every leftover is a Motion Photo, byte-identical to its master.
+  Expected behaviour, not a failed upload. Safe to delete from the device by hand.
+```
+
+It exits `0` when the residue looks like the table above, and `2` when it does not: a **plain
+file left behind** (measured at 0 of 527, so it is the one shape that really does suggest a
+failed upload), a leftover whose bytes differ from its master, or a leftover that is not in
+the Batch at all. `--no-hash` skips the byte comparison on a large Batch.
+
+Verified in the same pass: all 73 loose `.MOV`/`.MP4` files across both Batches carry **no
+`ContentIdentifier`** — they are genuine standalone videos, not unpaired Live Photo halves.
+Muxing caught every pair.
+
 ### The rename step's "errors" are usually exiftool notices
 
 A successful run can end the rename step with a large error count — the July 2026 import
@@ -1054,7 +1187,25 @@ named in local time and line up with their stills. Ending the chain on `QuickTim
 and pushed anything shot between 00:00 and 08:00 onto the previous day.
 
 Videos with no `Keys:CreationDate` — non-Apple footage, stripped metadata — still fall back to
-the UTC tags, which is better than no date at all.
+the UTC tags, which is better than no date at all. **This is where the fix does not reach**, so
+`rename_media.sh` now names them and says so:
+
+```
+Note: 3 video(s) have no Keys:CreationDate and were named from a UTC
+tag, so their names are offset from local time (8 h in UTC+8). A clip shot before
+08:00 local therefore carries the previous day's date.
+  20251001_074453.MP4
+  20251004_043320.MP4
+  20260416_112000.MOV
+```
+
+It is a note, not an error — nothing failed, the names are simply in UTC. The script cannot
+correct them, because the real capture offset is not in the file; only you know where the
+clip was shot. Fix them by hand if the date matters, before grouping.
+
+Measured on this library: **5 of 396 videos** (1.3 %) are affected, all 8 h early. Two more
+have no QuickTime date at all and fall through to the filesystem date, which is already local
+— those are fine and are deliberately not reported.
 
 ### `IMG_E####` — you have 111 of them
 
@@ -1146,7 +1297,7 @@ imports.
 Google's deduplication will not reliably collapse them.
 
 ```sh
-LIB="/Volumes/Aca_WD/PHOTO/Import from Image Capture"
+LIB="/Volumes/Aca_WD/PHOTO/ImageCapture"
 SCRIPT="$LIB/script"
 IMPORT="$LIB/Import2here/2026July28"               # the FILES live here — non-recursive!
 
@@ -1177,7 +1328,7 @@ not proof of a shared file.
 Once the above is second nature, this is the whole workflow:
 
 ```sh
-LIB="/Volumes/Aca_WD/PHOTO/Import from Image Capture"
+LIB="/Volumes/Aca_WD/PHOTO/ImageCapture"
 SCRIPT="$LIB/script"
 IMPORT="$LIB/library/$(date +%Y-%m-%d)"
 
@@ -1209,7 +1360,10 @@ adb push "$IMPORT/muxed-photo/<BATCH>" /sdcard/DCIM/ && adb reboot
 # 6. Confirm on photos.google.com, check a Motion Photo animates, THEN record it:
 "$SCRIPT/tools/log_upload.sh" "$IMPORT/muxed-photo/<BATCH>" "motion verified"
 
-# 7. Google Photos -> Free up space.  Next Batch.  Repeat 5-7.
+# 7. Google Photos -> Free up space.  It will NOT clear the whole Batch - Motion Photos
+#    are routinely left behind (normal, see Quirks).  Pull the leftovers off the phone:
+#      "$SCRIPT/tools/verify_residue.sh" <leftovers> "$RESULTS/<batch>"   # 0 = safe
+#    then delete them.  Next Batch.  Repeat 5-7.
 #    All Batches confirmed -> rm -rf "$IMPORT/muxed-photo".  KEEP the Originals.
 ```
 

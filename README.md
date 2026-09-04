@@ -71,7 +71,7 @@ Developed and used on **macOS**; Linux support is built in (portable `date`/`sta
 ## Quick start
 
 ```sh
-# Full pipeline: mux Live Photos -> rename by date -> group into 15G folders
+# Full pipeline: mux Live Photos -> rename by date -> group into 7G folders
 ./masterscript.sh /path/to/photos
 
 # Just rename a folder of photos/videos by date (no iPhone, no motionphoto2 needed):
@@ -94,7 +94,7 @@ Run it from anywhere — the script resolves its own location. Omit the director
                   the old in-place behavior.
 --skip-rename     Skip the rename step (step 2).
 --skip-group      Skip the size-grouping step (step 3).
---size SIZE       Group folder size (default 15G). Accepts K/M/G, e.g. 50G, 500M.
+--size SIZE       Group folder size (default 7G). Accepts K/M/G, e.g. 50G, 500M.
 --output-name N   Name of the muxing output subfolder (default: muxed-photo).
 --dry-run         Preview rename/group without changing anything. (Muxing cannot be
                   previewed, so it is skipped in dry-run mode.)
@@ -148,6 +148,29 @@ Add a row once a batch is confirmed, *before* you reclaim the space. `tools/log_
 will write the row for you; typing it by hand works just as well. The Notes column is free
 text and entirely optional.
 
+## Checking what "Free up space" left behind
+
+Google Photos' **Free up space** does not clear a whole batch, and that is normal. Measured
+across 1,739 files of this library, **81.8 %** of HEIC muxed output and **12.6 %** of JPEG
+muxed output stayed on the device after a fully confirmed backup — while **0 of 527**
+non-Motion-Photos did. Residue on its own therefore proves nothing, in either direction.
+
+`tools/verify_residue.sh` does the accounting. Pull the leftovers off the phone, then:
+
+```sh
+./tools/verify_residue.sh ~/pixel-leftovers/260415-260503-9.8GB \
+    ~/lib/2026July28/muxed-photo/260415-260503-9.8GB
+```
+
+It reports what stayed behind by class, verifies every leftover is byte-identical to its
+master, and exits `0` when the residue matches the known pattern. It exits `2` for the shapes
+that are *not* normal — a plain file left behind, a leftover whose bytes differ from its
+master, or a leftover that is not in the batch at all — so it is safe to use in a script.
+`--no-hash` skips the byte comparison on a large batch.
+
+See [docs/WORKFLOW.md](docs/WORKFLOW.md#free-up-space-leaves-motion-photos-behind--measured-2026-09-04)
+for the measurements, the controls, and what could not be determined.
+
 ## Configuration
 
 Every tunable has a built-in default that reproduces the author's current iPhone → Pixel
@@ -158,7 +181,7 @@ of them per run via an environment variable, without touching a file:
 
 | Variable | Default | Overrides |
 |---|---|---|
-| `PHOTO_GROUP_SIZE` | `15G` | grouped-folder size cap (same as `--size`) |
+| `PHOTO_GROUP_SIZE` | `7G` | grouped-folder size cap (same as `--size`) |
 | `PHOTO_OUTPUT_NAME` | `muxed-photo` | mux/copy output subfolder name (same as `--output-name`) |
 | `PHOTO_IMAGE_EXTS` | `jpg jpeg heic heif dng png tif tiff gif bmp webp` | recognized image extensions (rename & group) |
 | `PHOTO_VIDEO_EXTS` | `mov mp4 m4v avi 3gp 3g2 mts m2ts mkv wmv` | recognized video extensions (rename & group) |
@@ -233,7 +256,7 @@ takes effect immediately. If a config file is ever added later, it will be a pla
 - Renames **in place** in the directory it is given.
 
 ### 3. Group — `group_files_size.sh`
-- Sorts by capture date and packs files into folders of at most `--size` (default 15G), named `YYMMDD-YYMMDD-#.#GB`.
+- Sorts by capture date and packs files into folders of at most `--size` (default 7G), named `YYMMDD-YYMMDD-#.#GB`.
 - Dates come from the `YYYYMMDD_HHMMSS` filename first (so run rename first), falling back to the filesystem creation date.
 - A single file larger than the limit forms its own over-limit folder (with a warning).
 
@@ -313,6 +336,30 @@ MIT — see [LICENSE](LICENSE). The bundled `MotionPhoto2-main/` tool is a separ
 ## Changelog
 
 ### Unreleased
+- **default batch size is now 7G** (was 15G) — `PHOTO_GROUP_SIZE` in `lib.sh`, plus the
+  `--size` help text in `masterscript.sh` / `group_files_size.sh` and the sizing guidance in
+  `docs/WORKFLOW.md`. Existing `*-15.0GB` folders are unaffected; only new runs change.
+- **rename_media.sh:** a video with no `Keys:CreationDate` is named from the UTC
+  `QuickTime:*` tags and so lands hours from its true local time — 8 h in SGT, which pushes
+  anything shot before 08:00 onto the previous day and potentially into the wrong batch. The
+  rename *succeeded*, so exiftool said nothing and the case was invisible; the step now names
+  the affected files and explains the offset. Detection only: the real capture offset is not
+  in the file, so it cannot be corrected automatically. Measured at 5 of 396 videos on this
+  library.
+- **`tools/verify_residue.sh` (new):** accounts for the files Google Photos' **Free up
+  space** left on the device. Reports what stayed behind by class (Motion Photo vs plain, by
+  container), verifies every leftover is byte-identical to its master in the Batch, and exits
+  `2` for the shapes that are not normal — a plain file left behind, a content mismatch, or a
+  leftover that is not in the Batch at all. `--no-hash` skips the byte comparison. Covered by
+  13 tests in `test/test_verify_residue.bats`.
+- **docs:** documented that Google Photos' **Free up space** does not reclaim sideloaded
+  muxed Motion Photos, measured across 1,739 files in two confirmed Batches — 81.8 % of HEIC
+  muxed output and 12.6 % of JPEG muxed output stayed on the device, while **0 of 527**
+  non-Motion-Photos did. All 717 leftovers were SHA-256 identical to their masters. This
+  corrects Stage 7 and the checklist, which both told you that leftovers meant a failed
+  upload and to go back to Stage 6 — on this library that advice fires on a *normal* run and
+  sends you chasing an upload failure that did not happen. See
+  [Free up space leaves Motion Photos behind](docs/WORKFLOW.md#free-up-space-leaves-motion-photos-behind--measured-2026-09-04).
 - **rename_media.sh / lib.sh:** the rename step no longer reports exiftool's informational
   notices as errors. A clean run over muxed JPG Live Photos used to end with e.g.
   `1986 error(s) encountered` when nothing had failed — those lines were

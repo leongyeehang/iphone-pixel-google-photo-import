@@ -7,7 +7,7 @@ Optional: keep a paper trail by copying this per import —
 `cp docs/CHECKLIST.md "library/$(date +%F)/checklist.md"`
 
 ```sh
-LIB="/Volumes/Aca_WD/PHOTO/Import from Image Capture"
+LIB="/Volumes/Aca_WD/PHOTO/ImageCapture"
 SCRIPT="$LIB/script"
 IMPORT="$LIB/library/$(date +%Y-%m-%d)"
 ```
@@ -155,8 +155,13 @@ yourself — the script only saves the typing, it confirms nothing:
 ## 7 · Close the loop
 
 - [ ] Google Photos → **Free up space** (or delete the folder in OpenMTP)
-      ⚠️ If it frees fewer items than the batch held, some files never uploaded → back to 6
-      This is the strongest check you have: it only removes what is genuinely backed up.
+      ⚠️ It will **not** clear the whole batch. Motion Photos are routinely left behind —
+      ~82 % of HEIC muxed output, ~13 % of JPEG. That is normal and is **not** a failed
+      upload; step 6 is the real check. Delete the leftovers by hand.
+- [ ] Before deleting them, account for the leftovers — pull them off the phone, then:
+      `"$SCRIPT/tools/verify_residue.sh" <leftovers> "$RESULTS/<batch>"`
+      exit 0 = all Motion Photos, all byte-identical to their masters → safe to delete
+      exit 2 = read the ⚠️ ATTENTION lines before deleting anything
 - [ ] Repeat 5–7 for each remaining batch
 - [ ] All batches confirmed → `rm -rf "$IMPORT/muxed-photo"` (reproducible, disposable)
 - [ ] ⚠️ **Keep the originals.** They are your only non-Google copy.
