@@ -18,7 +18,7 @@ filesystem creation date. Non-media files are left in place. Runs on the current
 directory if none is given.
 
 Options:
-  --size SIZE   Target folder size (default 15G; or set PHOTO_GROUP_SIZE). K/M/G suffixes.
+  --size SIZE   Target folder size (default 7G; or set PHOTO_GROUP_SIZE). K/M/G suffixes.
   --dry-run     Preview folders that would be created; make no changes.
   -h, --help    Show this help and exit.
       --version Print version and exit.

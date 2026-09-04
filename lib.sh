@@ -9,7 +9,7 @@
 WORKFLOW_VERSION="1.1.0"
 
 # --- Overridable defaults (env wins over these; a flag wins over env) ---------
-: "${PHOTO_GROUP_SIZE:=15G}"
+: "${PHOTO_GROUP_SIZE:=7G}"
 : "${PHOTO_OUTPUT_NAME:=muxed-photo}"
 : "${PHOTO_IMAGE_EXTS:=jpg jpeg heic heif dng png tif tiff gif bmp webp}"
 : "${PHOTO_VIDEO_EXTS:=mov mp4 m4v avi 3gp 3g2 mts m2ts mkv wmv}"
