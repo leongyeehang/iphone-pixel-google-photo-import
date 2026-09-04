@@ -166,3 +166,53 @@ teardown() {
   [ -f "$TMP/rename_errors.log" ]
   [ ! -d "$TMP/.workflow" ]
 }
+
+# A real (tiny) MP4. exiftool must parse the container to write the QuickTime/Keys date
+# tags, so a stand-in of a few bytes will not do here.
+MP4_B64='AAAAIGZ0eXBpc29tAAACAGlzb21pc28yYXZjMW1wNDEAAAAIZnJlZQAAAs1tZGF0AAACrgYF//+q3EXpvebZSLeWLNgg2SPu73gyNjQgLSBjb3JlIDE2NSByMzIyMiBiMzU2MDVhIC0gSC4yNjQvTVBFRy00IEFWQyBjb2RlYyAtIENvcHlsZWZ0IDIwMDMtMjAyNSAtIGh0dHA6Ly93d3cudmlkZW9sYW4ub3JnL3gyNjQuaHRtbCAtIG9wdGlvbnM6IGNhYmFjPTEgcmVmPTMgZGVibG9jaz0xOjA6MCBhbmFseXNlPTB4MzoweDExMyBtZT1oZXggc3VibWU9NyBwc3k9MSBwc3lfcmQ9MS4wMDowLjAwIG1peGVkX3JlZj0xIG1lX3JhbmdlPTE2IGNocm9tYV9tZT0xIHRyZWxsaXM9MSA4eDhkY3Q9MSBjcW09MCBkZWFkem9uZT0yMSwxMSBmYXN0X3Bza2lwPTEgY2hyb21hX3FwX29mZnNldD0tMiB0aHJlYWRzPTEgbG9va2FoZWFkX3RocmVhZHM9MSBzbGljZWRfdGhyZWFkcz0wIG5yPTAgZGVjaW1hdGU9MSBpbnRlcmxhY2VkPTAgYmx1cmF5X2NvbXBhdD0wIGNvbnN0cmFpbmVkX2ludHJhPTAgYmZyYW1lcz0zIGJfcHlyYW1pZD0yIGJfYWRhcHQ9MSBiX2JpYXM9MCBkaXJlY3Q9MSB3ZWlnaHRiPTEgb3Blbl9nb3A9MCB3ZWlnaHRwPTIga2V5aW50PTI1MCBrZXlpbnRfbWluPTI1IHNjZW5lY3V0PTQwIGludHJhX3JlZnJlc2g9MCByY19sb29rYWhlYWQ9NDAgcmM9Y3JmIG1idHJlZT0xIGNyZj0yMy4wIHFjb21wPTAuNjAgcXBtaW49MCBxcG1heD02OSBxcHN0ZXA9NCBpcF9yYXRpbz0xLjQwIGFxPTE6MS4wMACAAAAAD2WIhAAr//72c3wKa22xgQAAAxRtb292AAAAbG12aGQAAAAAAAAAAAAAAAAAAAPoAAAAKAABAAABAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAACAAACP3RyYWsAAABcdGtoZAAAAAMAAAAAAAAAAAAAAAEAAAAAAAAAKAAAAAAAAAAAAAAAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAEAAAAAAAAAAAAAAAAAAEAAAAAAEAAAABAAAAAAACRlZHRzAAAAHGVsc3QAAAAAAAAAAQAAACgAAAAAAAEAAAAAAbdtZGlhAAAAIG1kaGQAAAAAAAAAAAAAAAAAADIAAAACAFXEAAAAAAAtaGRscgAAAAAAAAAAdmlkZQAAAAAAAAAAAAAAAFZpZGVvSGFuZGxlcgAAAAFibWluZgAAABR2bWhkAAAAAQAAAAAAAAAAAAAAJGRpbmYAAAAcZHJlZgAAAAAAAAABAAAADHVybCAAAAABAAABInN0YmwAAAC+c3RzZAAAAAAAAAABAAAArmF2YzEAAAAAAAAAAQAAAAAAAAAAAAAAAAAAAAAAEAAQAEgAAABIAAAAAAAAAAEVTGF2YzYyLjExLjEwMCBsaWJ4MjY0AAAAAAAAAAAAAAAY//8AAAA0YXZjQwFkAAr/4QAXZ2QACqzZXsBEAAADAAQAAAMAyDxIllgBAAZo6+PLIsD9+PgAAAAAEHBhc3AAAAABAAAAAQAAABRidHJ0AAAAAAACKegAAAAAAAAAGHN0dHMAAAAAAAAAAQAAAAEAAAIAAAAAHHN0c2MAAAAAAAAAAQAAAAEAAAABAAAAAQAAABRzdHN6AAAAAAAAAsUAAAABAAAAFHN0Y28AAAAAAAAAAQAAADAAAABhdWR0YQAAAFltZXRhAAAAAAAAACFoZGxyAAAAAAAAAABtZGlyYXBwbAAAAAAAAAAAAAAAACxpbHN0AAAAJKl0b28AAAAcZGF0YQAAAAEAAAAATGF2ZjYyLjMuMTAw'
+
+# A video with a QuickTime (UTC) date but NO Keys:CreationDate - the case that gets named
+# in UTC and, before the check existed, said nothing about it.
+make_utc_video() {
+  printf '%s' "$MP4_B64" | base64 -d > "$1"
+  exiftool -q -overwrite_original -QuickTime:CreateDate="2025:10:04 04:33:20" "$1"
+}
+
+# The same video WITH Keys:CreationDate - carries local time + offset, so it is named right.
+make_local_video() {
+  make_utc_video "$1"
+  exiftool -q -overwrite_original -Keys:CreationDate="2025:10:04 12:33:20+08:00" "$1"
+}
+
+@test "a video named from a UTC tag is reported, not silently accepted" {
+  make_utc_video "$TMP/clip.mp4"
+  run "$DIR/rename_media.sh" "$TMP"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"no Keys:CreationDate"* ]]
+  [[ "$output" == *"offset from local time"* ]]
+  [[ "$output" == *"20251004_043320.mp4"* ]]
+}
+
+@test "a video carrying Keys:CreationDate triggers no UTC note" {
+  make_local_video "$TMP/clip.mp4"
+  run "$DIR/rename_media.sh" "$TMP"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"no Keys:CreationDate"* ]]
+  # named from the local-time tag, not the UTC one
+  [ -f "$TMP/20251004_123320.mp4" ]
+}
+
+@test "photos alone never trigger the UTC note" {
+  printf 'x' > "$TMP/IMG_0001.JPG"
+  run "$DIR/rename_media.sh" "$TMP"
+  [ "$status" -eq 0 ]
+  [[ "$output" != *"no Keys:CreationDate"* ]]
+}
+
+@test "--dry-run reports the UTC case in the conditional, and renames nothing" {
+  make_utc_video "$TMP/clip.mp4"
+  run "$DIR/rename_media.sh" --dry-run "$TMP"
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"WOULD be named from a UTC"* ]]
+  [ -f "$TMP/clip.mp4" ]
+}
